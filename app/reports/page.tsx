@@ -255,6 +255,7 @@ function MasterReportsContent() {
   const setActiveTab = (tab: string) => setSelectedTab(tab);
   
   const [orders, setOrders] = useState<Order[]>([]);
+  const [saleReturns, setSaleReturns] = useState<Order[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -436,6 +437,28 @@ function MasterReportsContent() {
         raw: t
       })));
       setOrders(safeTxList.filter(t => t.transaction_type === 'sale' && t.status !== 'pending' && t.status !== 'draft' && t.status !== 'cancelled' && t.status !== 'rejected').map(t => ({
+        id: String(t.id || t.invoice_no),
+        invoiceNo: t.invoice_no,
+        customerName: t.party_name || '',
+        totalPrice: Number(t.total_amount || 0),
+        totalAmount: Number(t.total_amount || 0),
+        paidAmount: Number(t.paid_amount || 0),
+        dueAmount: Number(t.due_amount || 0),
+        paymentMethod: t.payment_method || '',
+        chequeNo: t.cheque_number || '',
+        items: (t.items || []).map(i => ({ 
+          productId: String((i as any).product || (i as any).product_id || ''),
+          name: i.product_name, 
+          price: Number(i.price || 0), 
+          quantity: Number(i.quantity || 0), 
+          unit: i.unit || 'পিস',
+          total: Number(i.total || (Number(i.price || 0) * Number(i.quantity || 0))),
+          category: (i as any).category || ''
+        })),
+        notes: (t as any).notes || '',
+        createdAt: t.created_at
+      })));
+      setSaleReturns(safeTxList.filter(t => t.transaction_type === 'sale_return' && t.status !== 'pending' && t.status !== 'draft' && t.status !== 'cancelled' && t.status !== 'rejected').map(t => ({
         id: String(t.id || t.invoice_no),
         invoiceNo: t.invoice_no,
         customerName: t.party_name || '',
@@ -1732,11 +1755,25 @@ function MasterReportsContent() {
                 return sum + (Number(t.paidAmount || t.amount) || 0);
               }, 0);
 
+              // Sale return cash refund paid to customers on selected date
+              const daySaleReturnCashRefund = transactions.filter(t => {
+                if (t.raw?.status === 'cancelled' || t.raw?.status === 'rejected') return false;
+                const tType = (t.type || '').toLowerCase();
+                if (tType !== 'sale_return') return false;
+                const d = safeParseDate(t.createdAt);
+                if (!d || format(d, 'yyyy-MM-dd') !== selectedDateStr) return false;
+                const pm = ((t.paymentMethod || '') as string).toLowerCase();
+                if (pm.includes('bank') || pm.includes('cheque') || pm.includes('check') || pm.includes('bkash')) {
+                  return false;
+                }
+                return (Number(t.paidAmount) || 0) > 0;
+              }).reduce((sum, t) => sum + (Number(t.paidAmount) || 0), 0);
+
               // Total Inflows & Outflows
               const totalCashInflow = cashSalesInflow + customerPaymentInflow + loanInflow;
               const dueSalesTotal = dayOrders.reduce((sum, o) => sum + (Number(o.dueAmount) || 0), 0);
               const totalDailySalesVal = dayOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-              const totalOutflow = cashPurchaseOutflow + expenseOutflow + supplierPaymentOutflow + loanOutflow;
+              const totalOutflow = cashPurchaseOutflow + expenseOutflow + supplierPaymentOutflow + loanOutflow + daySaleReturnCashRefund;
               const netCashDifference = totalCashInflow - totalOutflow;
 
               // Calculate Historical Closing Cash Balance up to selected date
@@ -1752,7 +1789,7 @@ function MasterReportsContent() {
 
                 const tType = (t.type || '').toLowerCase();
                 const pMethod = ((t.paymentMethod || '') as string).toLowerCase();
-                const pAmt = Number(t.paidAmount || t.amount || 0);
+                const pAmt = tType === 'sale_return' ? Number(t.paidAmount || 0) : Number(t.paidAmount || t.amount || 0);
 
                 if (tType === 'sale' || tType === 'payment_in' || tType === 'loan_in' || tType === 'income') {
                   if (pMethod === 'split') {
@@ -1771,7 +1808,7 @@ function MasterReportsContent() {
                   } else if (!bankMethods.some(b => pMethod.includes(b))) {
                     cumIn += pAmt;
                   }
-                } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense') {
+                } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense' || tType === 'sale_return') {
                   if (!bankMethods.some(b => pMethod.includes(b))) {
                     cumOut += pAmt;
                   }
@@ -1802,6 +1839,23 @@ function MasterReportsContent() {
                   }
                   if (isCementProduct(i)) {
                     cementSoldBags += Number(i.quantity);
+                  }
+                });
+              });
+
+              // Subtract today's returns for net movement
+              saleReturns.filter(r => {
+                const d = safeParseDate(r.createdAt);
+                return d ? format(d, 'yyyy-MM-dd') === selectedDateStr : false;
+              }).forEach(r => {
+                (r.items || []).forEach(i => {
+                  const unitLower = (i.unit || '').toLowerCase();
+                  if (isRodProduct(i)) {
+                    const qKg = unitLower.includes('টন') ? Number(i.quantity) * 1000 : Number(i.quantity);
+                    rodSoldKg = Math.max(0, rodSoldKg - qKg);
+                  }
+                  if (isCementProduct(i)) {
+                    cementSoldBags = Math.max(0, cementSoldBags - Number(i.quantity));
                   }
                 });
               });
@@ -1985,6 +2039,12 @@ function MasterReportsContent() {
                               <TableCell className="text-right font-black text-rose-700 px-6">{formatBnCurrency(loanOutflow)}</TableCell>
                             </TableRow>
                           )}
+                          {daySaleReturnCashRefund > 0 && (
+                            <TableRow className="border-b border-slate-100 text-xs bg-rose-50/50">
+                              <TableCell className="font-bold text-rose-900">বিক্রয় ফেরত ক্যাশ প্রদান (Sale Return Refund)</TableCell>
+                              <TableCell className="text-right font-black text-rose-700 px-6">{formatBnCurrency(daySaleReturnCashRefund)}</TableCell>
+                            </TableRow>
+                          )}
                           <TableRow className="bg-rose-50/80 font-black text-xs text-rose-900 border-t border-rose-200">
                             <TableCell className="py-3 px-4 font-black">সর্বমোট ক্যাশ প্রদান (Cash Outflow)</TableCell>
                             <TableCell className="text-right text-rose-700 text-sm px-6 font-black">{formatBnCurrency(totalOutflow)}</TableCell>
@@ -2058,6 +2118,9 @@ function MasterReportsContent() {
                               <tr className="border-b"><td className="py-1">দোকান খরচ:</td><td className="text-right font-bold">৳{expenseOutflow.toLocaleString()}</td></tr>
                               {loanOutflow > 0 && (
                                 <tr className="border-b"><td className="py-1">হাওলাত / ঋণ পরিশোধ:</td><td className="text-right font-bold">৳{loanOutflow.toLocaleString()}</td></tr>
+                              )}
+                              {daySaleReturnCashRefund > 0 && (
+                                <tr className="border-b"><td className="py-1">বিক্রয় ফেরত ক্যাশ প্রদান:</td><td className="text-right font-bold">৳{daySaleReturnCashRefund.toLocaleString()}</td></tr>
                               )}
                               <tr className="font-bold"><td className="py-2">মোট খরচ:</td><td className="text-right py-2">৳{totalOutflow.toLocaleString()}</td></tr>
                             </tbody>
@@ -2161,6 +2224,12 @@ function MasterReportsContent() {
                 return d ? format(d, 'yyyy-MM-dd') === selectedDateStr : false;
               });
 
+              // Day all sale returns
+              const dayAllSaleReturns = saleReturns.filter(r => {
+                const d = safeParseDate(r.createdAt);
+                return d ? format(d, 'yyyy-MM-dd') === selectedDateStr : false;
+              });
+
               // Day all purchases
               const dayAllPurchases = purchases.filter(p => {
                 const dt = p.createdAt || (p as any).purchaseDate || (p as any).date;
@@ -2189,7 +2258,7 @@ function MasterReportsContent() {
                   
                   const tType = (t.type || '').toLowerCase();
                   const pMethod = ((t.paymentMethod || '') as string).toLowerCase();
-                  const pAmt = Number(t.paidAmount || t.amount || 0);
+                  const pAmt = tType === 'sale_return' ? Number(t.paidAmount || 0) : Number(t.paidAmount || t.amount || 0);
 
                   if (tType === 'sale' || tType === 'payment_in' || tType === 'loan_in' || tType === 'income') {
                     if (pMethod === 'split') {
@@ -2208,7 +2277,7 @@ function MasterReportsContent() {
                     } else if (!pMethod.includes('bank') && !pMethod.includes('bkash')) {
                       cumCashIn += pAmt;
                     }
-                  } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense') {
+                  } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense' || tType === 'sale_return') {
                     if (!pMethod.includes('cheque') && !pMethod.includes('bank') && !pMethod.includes('bkash')) {
                       cumCashOut += pAmt;
                     }
@@ -2266,7 +2335,7 @@ function MasterReportsContent() {
                 }
               });
 
-              // Helper to calculate product stock on historical date by rolling back subsequent sales & purchases
+              // Helper to calculate product stock on historical date by rolling back subsequent sales, returns & purchases
               const getHistoricalProductStock = (product: Product): number => {
                 const currentStock = Number(product.stock) || 0;
                 if (isToday) return currentStock;
@@ -2274,6 +2343,7 @@ function MasterReportsContent() {
                 const prodId = String(product.id);
                 const pName = (product.name || '').trim().toLowerCase();
                 let salesAfter = 0;
+                let saleReturnsAfter = 0;
                 let purchasesAfter = 0;
 
                 orders.forEach(o => {
@@ -2289,6 +2359,23 @@ function MasterReportsContent() {
                       if (pU.includes('কেজি') && u.includes('টন')) q *= 1000;
                       else if (pU.includes('টন') && u.includes('কেজি')) q /= 1000;
                       salesAfter += q;
+                    }
+                  });
+                });
+
+                saleReturns.forEach(r => {
+                  const d = safeParseDate(r.createdAt);
+                  if (!d || format(d, 'yyyy-MM-dd') <= selectedDateStr) return;
+                  (r.items || []).forEach(i => {
+                    const matchId = (i as any).productId && String((i as any).productId) === prodId;
+                    const matchName = (i.name || '').trim().toLowerCase() === pName;
+                    if (matchId || matchName) {
+                      const u = (i.unit || '').toLowerCase();
+                      const pU = (product.unit || '').toLowerCase();
+                      let q = Number(i.quantity) || 0;
+                      if (pU.includes('কেজি') && u.includes('টন')) q *= 1000;
+                      else if (pU.includes('টন') && u.includes('কেজি')) q /= 1000;
+                      saleReturnsAfter += q;
                     }
                   });
                 });
@@ -2311,10 +2398,10 @@ function MasterReportsContent() {
                   });
                 });
 
-                return Math.max(0, currentStock + salesAfter - purchasesAfter);
+                return Math.max(0, currentStock + salesAfter - saleReturnsAfter - purchasesAfter);
               };
 
-              // 2. Cement Calculations (Sales, Purchases, Direct Delivery, Stock)
+              // 2. Cement Calculations (Sales, Purchases, Returns, Direct Delivery, Stock)
               let cementSoldBags = 0;
               let cementDirectBags = 0;
               dayAllOrders.forEach(o => {
@@ -2329,6 +2416,17 @@ function MasterReportsContent() {
                   }
                 });
               });
+
+              // Deduct today's returned cement bags
+              let dayCementReturnBags = 0;
+              dayAllSaleReturns.forEach(r => {
+                (r.items || []).forEach(i => {
+                  if (isCementProduct(i)) {
+                    dayCementReturnBags += Number(i.quantity) || 0;
+                  }
+                });
+              });
+              cementSoldBags = Math.max(0, cementSoldBags - dayCementReturnBags);
 
               let cementBoughtBags = 0;
               dayAllPurchases.forEach(p => {
@@ -2411,6 +2509,19 @@ function MasterReportsContent() {
                   }
                 });
               });
+
+              // Deduct today's returned rod kg
+              let dayRodReturnKg = 0;
+              dayAllSaleReturns.forEach(r => {
+                (r.items || []).forEach(i => {
+                  if (isRodProduct(i)) {
+                    const u = (i.unit || '').toLowerCase();
+                    const qtyKg = u.includes('টন') ? (Number(i.quantity) || 0) * 1000 : (Number(i.quantity) || 0);
+                    dayRodReturnKg += qtyKg;
+                  }
+                });
+              });
+              rodSoldKg = Math.max(0, rodSoldKg - dayRodReturnKg);
 
               let rodBoughtKg = 0;
               dayAllPurchases.forEach(p => {
@@ -2969,15 +3080,17 @@ ${cementBlockLines.join('\n')}
               ];
 
               const filteredOrders = orders.filter(o => filterByPeriod(o.createdAt));
+              const filteredSaleReturns = saleReturns.filter(r => filterByPeriod(r.createdAt));
               const filteredPurchases = purchases.filter(p => filterByPeriod(p.createdAt));
               const filteredExpenses = expenses.filter(e => filterByPeriod(e.createdAt || e.date));
 
               // 2. Revenue Breakdown (আয়ের খাত - রড ও রিং রডের আওতায় এবং সিমেন্ট; কোনো অন্যান্য পণ্য নয়)
-              const totalOrderSalesAmount = filteredOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+              const grossOrderSalesAmount = filteredOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+              const totalSaleReturnAmount = filteredSaleReturns.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
 
-              let cementSalesQty = 0;
-              let cementSalesAmount = 0;
-              let rodSalesQty = 0;
+              let grossCementSalesQty = 0;
+              let grossCementSalesAmount = 0;
+              let grossRodSalesQty = 0;
 
               filteredOrders.forEach(o => {
                 const items = o.items || [];
@@ -2986,7 +3099,7 @@ ${cementBlockLines.join('\n')}
                 if (items.length === 0) {
                   const isCementOrder = (o.notes || '').toLowerCase().includes('সিমেন্ট') || (o.notes || '').toLowerCase().includes('cement');
                   if (isCementOrder) {
-                    cementSalesAmount += orderTotal;
+                    grossCementSalesAmount += orderTotal;
                   }
                   return;
                 }
@@ -2995,7 +3108,7 @@ ${cementBlockLines.join('\n')}
                 const rItems = items.filter(i => !isCementProduct(i));
 
                 cItems.forEach(i => {
-                  cementSalesQty += Number(i.quantity) || 0;
+                  grossCementSalesQty += Number(i.quantity) || 0;
                 });
 
                 rItems.forEach(i => {
@@ -3003,24 +3116,77 @@ ${cementBlockLines.join('\n')}
                   const qtyKg = u.includes('টন') || u.includes('ton') 
                     ? (Number(i.quantity) || 0) * 1000 
                     : (Number(i.quantity) || 0);
-                  rodSalesQty += qtyKg;
+                  grossRodSalesQty += qtyKg;
                 });
 
                 const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                 const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
 
                 if (cSum > 0 && rSum === 0) {
-                  cementSalesAmount += orderTotal;
+                  grossCementSalesAmount += orderTotal;
                 } else if (rSum > 0 && cSum === 0) {
                   // pure rod / ring
                 } else if (cSum + rSum > 0) {
                   const cRatio = cSum / (cSum + rSum);
-                  cementSalesAmount += orderTotal * cRatio;
+                  grossCementSalesAmount += orderTotal * cRatio;
                 }
               });
 
-              // রড ও রিং এবং যাবতীয় পণ্য রডের হিসেবে সমন্বিত
-              const rodSalesAmount = Math.max(0, totalOrderSalesAmount - cementSalesAmount);
+              // Calculate Sales Returns breakdown for Cement and Rod
+              let cementReturnQty = 0;
+              let cementReturnAmount = 0;
+              let rodReturnQty = 0;
+
+              filteredSaleReturns.forEach(r => {
+                const items = r.items || [];
+                const retTotal = Number(r.totalAmount) || 0;
+
+                if (items.length === 0) {
+                  const isCementRet = (r.notes || '').toLowerCase().includes('সিমেন্ট') || (r.notes || '').toLowerCase().includes('cement');
+                  if (isCementRet) {
+                    cementReturnAmount += retTotal;
+                  }
+                  return;
+                }
+
+                const cItems = items.filter(i => isCementProduct(i));
+                const rItems = items.filter(i => !isCementProduct(i));
+
+                cItems.forEach(i => {
+                  cementReturnQty += Number(i.quantity) || 0;
+                });
+
+                rItems.forEach(i => {
+                  const u = (i.unit || '').toLowerCase();
+                  const qtyKg = u.includes('টন') || u.includes('ton') 
+                    ? (Number(i.quantity) || 0) * 1000 
+                    : (Number(i.quantity) || 0);
+                  rodReturnQty += qtyKg;
+                });
+
+                const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
+                const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
+
+                if (cSum > 0 && rSum === 0) {
+                  cementReturnAmount += retTotal;
+                } else if (rSum > 0 && cSum === 0) {
+                  // pure rod / ring
+                } else if (cSum + rSum > 0) {
+                  const cRatio = cSum / (cSum + rSum);
+                  cementReturnAmount += retTotal * cRatio;
+                }
+              });
+
+              const grossRodSalesAmount = Math.max(0, grossOrderSalesAmount - grossCementSalesAmount);
+              const rodReturnAmount = Math.max(0, totalSaleReturnAmount - cementReturnAmount);
+
+              // Net Quantities and Amounts (সমন্বিত নিট বিক্রয়)
+              const cementSalesQty = Math.max(0, grossCementSalesQty - cementReturnQty);
+              const rodSalesQty = Math.max(0, grossRodSalesQty - rodReturnQty);
+
+              const cementSalesAmount = Math.max(0, grossCementSalesAmount - cementReturnAmount);
+              const rodSalesAmount = Math.max(0, grossRodSalesAmount - rodReturnAmount);
+
               const totalSalesIncome = cementSalesAmount + rodSalesAmount;
 
               // 3. Cement Direct Costs (সিমেন্ট ক্রয় ও পরিবহন ব্যয়)
@@ -3339,9 +3505,13 @@ ${cementBlockLines.join('\n')}
                   {/* Top KPI Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
                     <Card className="p-4 border-emerald-200 bg-gradient-to-br from-emerald-50/90 to-teal-50/40 rounded-2xl shadow-xs">
-                      <p className="text-xs font-bold text-emerald-800">মোট বিক্রয় আয় (Total Revenue)</p>
+                      <p className="text-xs font-bold text-emerald-800">মোট বিক্রয় আয় (Net Revenue)</p>
                       <p className="text-2xl font-black text-emerald-700 mt-1">{formatBnCurrency(totalSalesIncome)}</p>
-                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5">সিমেন্ট ও রড বিক্রয়</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                        {totalSaleReturnAmount > 0 
+                          ? `বিক্রি: ${formatBnCurrency(grossOrderSalesAmount)} | ফেরত: -${formatBnCurrency(totalSaleReturnAmount)}`
+                          : 'সিমেন্ট ও রড নিট বিক্রয়'}
+                      </p>
                     </Card>
 
                     <Card className="p-4 border-rose-200 bg-gradient-to-br from-rose-50/90 to-red-50/40 rounded-2xl shadow-xs">
@@ -3471,7 +3641,14 @@ ${cementBlockLines.join('\n')}
                           {/* আয়ের খাত: ১. সিমেন্ট বিক্রয় বাবদ আয় */}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>সিমেন্ট বিক্রয় বাবদ আয়</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
+                              সিমেন্ট বিক্রয় বাবদ আয়
+                              {cementReturnQty > 0 && (
+                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
+                                  (বিক্রি: {formatBnQty(grossCementSalesQty)} - ফেরত: {formatBnQty(cementReturnQty)})
+                                </span>
+                              )}
+                            </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(cementSalesQty)}</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(cementSalesAmount)}</td>
                           </tr>
@@ -3479,7 +3656,14 @@ ${cementBlockLines.join('\n')}
                           {/* আয়ের খাত: ২. রড বিক্রয় বাবদ আয় */}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>২</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>রড বিক্রয় বাবদ আয়</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
+                              রড বিক্রয় বাবদ আয়
+                              {rodReturnQty > 0 && (
+                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
+                                  (বিক্রি: {formatBnQty(grossRodSalesQty)} - ফেরত: {formatBnQty(rodReturnQty)})
+                                </span>
+                              )}
+                            </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(rodSalesQty)}</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(rodSalesAmount)}</td>
                           </tr>
@@ -5120,7 +5304,8 @@ ${cementBlockLines.join('\n')}
             {/* 7. রড সিমেন্ট ক্রয় বিক্রয় স্টীট */}
             {activeTab === 'trade_register' && (() => {
               const totalPurchasesAmt = purchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-              const totalSalesAmt = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+              const totalReturnsAmt = saleReturns.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+              const totalSalesAmt = Math.max(0, orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0) - totalReturnsAmt);
               const totalProfitAmt = totalSalesAmt - totalPurchasesAmt;
 
               return (
