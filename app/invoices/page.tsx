@@ -131,6 +131,8 @@ interface Invoice {
   cementLaborCost?: number;
   cementShippingCost?: number;
   cementTotalBags?: number;
+  cementUnloadingRate?: number;
+  cementUnloadingCost?: number;
   engineerRodRate?: number;
   engineerCementRate?: number;
   engineerRodKg?: number;
@@ -340,6 +342,13 @@ function InvoicesContent() {
     }
     return '';
   });
+  const [cementUnloadingRateInput, setCementUnloadingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_unloading_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
   const [shippingCostInput, setShippingCostInput] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('dokan_sales_shipping_cost');
@@ -354,6 +363,7 @@ function InvoicesContent() {
 
   const rodLaborRate = parseInputNumber(rodLaborRateInput);
   const cementLaborRate = parseInputNumber(cementLaborRateInput);
+  const cementUnloadingRate = parseInputNumber(cementUnloadingRateInput);
   const shippingCost = parseInputNumber(shippingCostInput);
   const manualShippingCost = shippingCost;
   const manualLaborCost = parseInputNumber(manualLaborCostInput);
@@ -376,8 +386,9 @@ function InvoicesContent() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('dokan_sales_rod_labor_rate', (rodLaborRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_labor_rate', (cementLaborRate || 0).toString());
+      localStorage.setItem('dokan_sales_cement_unloading_rate', (cementUnloadingRate || 0).toString());
       localStorage.setItem('dokan_sales_shipping_cost', (shippingCost || 0).toString());
-      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লেবার: ৳${toBengaliDigits(rodLaborRate)}/কেজি, সিমেন্ট লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)}` : ''})`);
+      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লেবার: ৳${toBengaliDigits(rodLaborRate)}/কেজি, লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা, আনলোডিং: ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)}` : ''})`);
     }
   };
 
@@ -477,6 +488,8 @@ function InvoicesContent() {
           cementLaborCost: meta.cementLaborCost !== undefined ? Number(meta.cementLaborCost) : undefined,
           cementShippingCost: meta.cementShippingCost !== undefined ? Number(meta.cementShippingCost) : undefined,
           cementTotalBags: meta.cementTotalBags !== undefined ? Number(meta.cementTotalBags) : undefined,
+          cementUnloadingRate: meta.cementUnloadingRate !== undefined ? Number(meta.cementUnloadingRate) : undefined,
+          cementUnloadingCost: meta.cementUnloadingCost !== undefined ? Number(meta.cementUnloadingCost) : undefined,
           engineerRodRate: meta.engineerRodRate !== undefined ? Number(meta.engineerRodRate) : undefined,
           engineerCementRate: meta.engineerCementRate !== undefined ? Number(meta.engineerCementRate) : undefined,
           engineerRodKg: meta.engineerRodKg !== undefined ? Number(meta.engineerRodKg) : undefined,
@@ -872,10 +885,11 @@ function InvoicesContent() {
   const rodLaborTotal = round2(rodRingTotalKg * (rodLaborRate || 0));
   const rodShippingTotal = 0;
   const cementLaborTotal = round2(cementTotalBags * (cementLaborRate || 0));
+  const cementUnloadingTotal = round2(cementTotalBags * (cementUnloadingRate || 0));
   const cementShippingTotal = 0;
 
-  // Customer only pays Rod labor (or manual labor); Cement labor is shop loading charge paid by dokan
-  const laborCost = chargeCalcMode === 'rate' ? rodLaborTotal : manualLaborCost;
+  // Customer pays Rod labor + Cement Unloading labor (or manual labor); Cement loading is shop loading charge paid by dokan
+  const laborCost = chargeCalcMode === 'rate' ? round2(rodLaborTotal + cementUnloadingTotal) : manualLaborCost;
   // Note: shippingCost (vehicle rent) is directly entered as a flat amount and parsed above
 
   // Engineer Commission Calculations (Per KG for Rod, Per Bag for Cement)
@@ -954,9 +968,11 @@ function InvoicesContent() {
     // Load default per-unit rates from localStorage
     const defRodLab = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_rod_labor_rate') || '') : '';
     const defCemLab = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_cement_labor_rate') || '') : '';
+    const defCemUnload = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_cement_unloading_rate') || '') : '';
     const defShip = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_shipping_cost') || '') : '';
     setRodLaborRateInput(defRodLab ? formatDecimalInput(defRodLab) : '');
     setCementLaborRateInput(defCemLab ? formatDecimalInput(defCemLab) : '');
+    setCementUnloadingRateInput(defCemUnload ? formatDecimalInput(defCemUnload) : '');
     setShippingCostInput(defShip ? formatDecimalInput(defShip) : '');
     setChargeCalcMode('rate');
     setManualLaborCostInput('');
@@ -1087,6 +1103,7 @@ function InvoicesContent() {
 
     if (invAny.rodLaborRate !== undefined) setRodLaborRateInput(formatDecimalInput(String(invAny.rodLaborRate || '')));
     if (invAny.cementLaborRate !== undefined) setCementLaborRateInput(formatDecimalInput(String(invAny.cementLaborRate || '')));
+    if (invAny.cementUnloadingRate !== undefined) setCementUnloadingRateInput(formatDecimalInput(String(invAny.cementUnloadingRate || '')));
     if (invAny.chargeCalcMode) setChargeCalcMode(invAny.chargeCalcMode);
 
     setSelectedInvoice(null);
@@ -1211,6 +1228,13 @@ function InvoicesContent() {
         cementLoadingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.cementLoadingPaidAt || '') : '',
         cementLoadingPaidMethod: editingInvoiceMeta ? (editingInvoiceMeta.cementLoadingPaidMethod || '') : '',
         cementLoadingSardar: editingInvoiceMeta ? (editingInvoiceMeta.cementLoadingSardar || '') : '',
+        cementUnloadingRate: Number(cementUnloadingRate || 0),
+        cementUnloadingCost: Number(cementUnloadingTotal || 0),
+        cementUnloadingPaid: editingInvoiceMeta ? Boolean(editingInvoiceMeta.cementUnloadingPaid) : false,
+        cementUnloadingPaidAmount: editingInvoiceMeta ? Number(editingInvoiceMeta.cementUnloadingPaidAmount || 0) : 0,
+        cementUnloadingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.cementUnloadingPaidAt || '') : '',
+        cementUnloadingPaidMethod: editingInvoiceMeta ? (editingInvoiceMeta.cementUnloadingPaidMethod || '') : '',
+        cementUnloadingSardar: editingInvoiceMeta ? (editingInvoiceMeta.cementUnloadingSardar || '') : '',
         salesShippingPaid: editingInvoiceMeta ? Boolean(editingInvoiceMeta.salesShippingPaid || editingInvoiceMeta.shippingPaid) : false,
         salesShippingPaidAmount: editingInvoiceMeta ? Number(editingInvoiceMeta.salesShippingPaidAmount !== undefined ? editingInvoiceMeta.salesShippingPaidAmount : (editingInvoiceMeta.shippingPaidAmount || 0)) : 0,
         salesShippingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.salesShippingPaidAt || '') : '',
@@ -2719,6 +2743,30 @@ function InvoicesContent() {
                                   💡 লোডিং খরচ কাস্টমারের বিলে যুক্ত হবে না, দোকান লোডিং বিল হিসেবে পরিশোধ হবে।
                                 </span>
                               </div>
+
+                              {/* Cement Unloading Rate (Customer Paid) */}
+                              <div className="pt-2 border-t border-amber-200/80 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-[11px] font-bold text-slate-700">আনলোডিং লেবার রেট (৳/বস্তা)</Label>
+                                  <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.2 rounded border border-emerald-300">কাস্টমার প্রদেয়</span>
+                                </div>
+                                <div className="relative">
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={cementUnloadingRateInput}
+                                    onChange={e => setCementUnloadingRateInput(formatDecimalInput(e.target.value))}
+                                    placeholder="০.০০"
+                                    className="rounded-md h-9 bg-white border-emerald-300 text-xs font-bold text-emerald-800 font-bengali pr-24"
+                                  />
+                                  <span className="absolute right-2 top-2 text-[10px] font-bold text-slate-500 font-bengali">
+                                    = ৳{toBengaliDigits(cementUnloadingTotal.toLocaleString('en-IN'))}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-emerald-800 font-medium block">
+                                  💡 আনলোডিং খরচ কাস্টমারের বিলে যুক্ত হবে (গাড়ি ভাড়া ও রড লেবারের মতো)।
+                                </span>
+                              </div>
                             </div>
                           )}
 
@@ -3136,10 +3184,24 @@ function InvoicesContent() {
                           </div>
                         )}
 
-                        {laborCost > 0 && (
+                        {rodLaborTotal > 0 && (
                           <div className="flex justify-between text-amber-600">
                             <span>লেবার খরচ (রড)</span>
-                            <span className="font-bold">+ ৳ {toBengaliDigits(laborCost.toLocaleString('en-IN'))}</span>
+                            <span className="font-bold">+ ৳ {toBengaliDigits(rodLaborTotal.toLocaleString('en-IN'))}</span>
+                          </div>
+                        )}
+
+                        {cementUnloadingTotal > 0 && (
+                          <div className="flex justify-between text-emerald-700">
+                            <span>সিমেন্ট আনলোডিং লেবার</span>
+                            <span className="font-bold">+ ৳ {toBengaliDigits(cementUnloadingTotal.toLocaleString('en-IN'))}</span>
+                          </div>
+                        )}
+
+                        {chargeCalcMode === 'manual' && manualLaborCost > 0 && (
+                          <div className="flex justify-between text-amber-600">
+                            <span>লেবার খরচ</span>
+                            <span className="font-bold">+ ৳ {toBengaliDigits(manualLaborCost.toLocaleString('en-IN'))}</span>
                           </div>
                         )}
 

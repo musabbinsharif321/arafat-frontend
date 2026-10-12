@@ -212,6 +212,7 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
   const rodShippingRate = Number((invoice as any).rodShippingRate !== undefined ? (invoice as any).rodShippingRate : (meta.rodShippingRate || 0));
   const cementLaborRate = Number((invoice as any).cementLaborRate !== undefined ? (invoice as any).cementLaborRate : (meta.cementLaborRate || 0));
   const cementShippingRate = Number((invoice as any).cementShippingRate !== undefined ? (invoice as any).cementShippingRate : (meta.cementShippingRate || 0));
+  const cementUnloadingRate = Number((invoice as any).cementUnloadingRate !== undefined ? (invoice as any).cementUnloadingRate : (meta.cementUnloadingRate || 0));
 
   const rodRingWeight = items.reduce((sum: number, item: any) => {
     const parsed = parseProductDetails(item);
@@ -233,16 +234,19 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
     return sum;
   }, 0);
 
-  const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0);
+  const cementUnloadingCost = Number((invoice as any).cementUnloadingCost !== undefined ? (invoice as any).cementUnloadingCost : (meta.cementUnloadingCost || (cementUnloadingRate > 0 && cementBags > 0 ? cementUnloadingRate * cementBags : 0)));
+  const rodLaborCost = Number((invoice as any).rodLaborCost !== undefined ? (invoice as any).rodLaborCost : (meta.rodLaborCost || (rodLaborRate > 0 && rodRingWeight > 0 ? rodLaborRate * rodRingWeight : 0)));
+
+  const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0 || cementUnloadingRate > 0);
   
   const rodUnitExtra = hasExplicitRates
     ? (rodLaborRate + rodShippingRate)
     : (rodRingWeight > 0 && cementBags === 0 ? (effectiveShippingCost + effectiveLaborCost) / rodRingWeight : 0);
 
-  // Cement labor is paid by the shop (দোকানের খরচ), only shipping applies to customer unit extra
+  // Cement unloading is paid by customer (just like rod labor), loading is paid by shop
   const cementUnitExtra = hasExplicitRates
-    ? cementShippingRate
-    : (cementBags > 0 && rodRingWeight === 0 ? effectiveShippingCost / cementBags : 0);
+    ? (cementShippingRate + cementUnloadingRate)
+    : (cementBags > 0 && rodRingWeight === 0 ? (effectiveShippingCost + cementUnloadingCost) / cementBags : 0);
 
   const paidAmount = invoice.paidAmount !== undefined ? invoice.paidAmount : 0;
   const dueAmount = invoice.dueAmount !== undefined ? invoice.dueAmount : Math.max(0, totalAmount - paidAmount);
@@ -782,7 +786,7 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
                 <span className="font-mono">৳ {toBengaliDigits(subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
               </div>
 
-              {effectiveLaborCost > 0 && (
+              {(rodLaborCost > 0 || (effectiveLaborCost > 0 && cementUnloadingCost === 0)) && (
                 <div className="flex justify-between items-center p-1.5 px-2">
                   <div className="flex flex-col text-left">
                     <span className="text-slate-800 font-medium">লেবার খরচ (রড)</span>
@@ -792,7 +796,21 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="font-mono">+ ৳ {toBengaliDigits(effectiveLaborCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  <span className="font-mono">+ ৳ {toBengaliDigits((rodLaborCost > 0 ? rodLaborCost : (effectiveLaborCost - cementUnloadingCost)).toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                </div>
+              )}
+
+              {cementUnloadingCost > 0 && (
+                <div className="flex justify-between items-center p-1.5 px-2">
+                  <div className="flex flex-col text-left">
+                    <span className="text-slate-800 font-medium">সিমেন্ট আনলোডিং লেবার</span>
+                    {cementUnloadingRate > 0 && (
+                      <span className="text-[9px] text-slate-500 font-normal">
+                        {toBengaliDigits(cementBags)} বস্তা @ ৳{toBengaliDigits(cementUnloadingRate)}/বস্তা
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono">+ ৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
                 </div>
               )}
 

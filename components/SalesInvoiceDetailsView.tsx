@@ -84,7 +84,6 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
   const rodShippingRate = Number(invoice.rodShippingRate !== undefined ? invoice.rodShippingRate : (meta.rodShippingRate || 0));
   const cementLaborRate = Number(invoice.cementLaborRate !== undefined ? invoice.cementLaborRate : (meta.cementLaborRate || 0));
   const cementShippingRate = Number(invoice.cementShippingRate !== undefined ? invoice.cementShippingRate : (meta.cementShippingRate || 0));
-
   const rodRingWeight = items.reduce((sum: number, item: any) => {
     const parsed = parseProductDetails(item);
     const isRod = parsed.categoryName === 'রড' || (item.unit || '').includes('কেজি') || (item.unit || '').includes('টন') || (item.name || '').includes('রড') || (item.name || '').includes('মিলি');
@@ -105,15 +104,19 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
     return sum;
   }, 0);
 
-  const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0);
+  const cementUnloadingRate = Number(invoice.cementUnloadingRate !== undefined ? invoice.cementUnloadingRate : (meta.cementUnloadingRate || 0));
+  const cementUnloadingCost = Number(invoice.cementUnloadingCost !== undefined ? invoice.cementUnloadingCost : (meta.cementUnloadingCost || (cementUnloadingRate > 0 && cementBags > 0 ? cementUnloadingRate * cementBags : 0)));
+  const rodLaborCost = Number(invoice.rodLaborCost !== undefined ? invoice.rodLaborCost : (meta.rodLaborCost || (rodLaborRate > 0 && rodRingWeight > 0 ? rodLaborRate * rodRingWeight : 0)));
+
+  const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0 || cementUnloadingRate > 0);
   
   const rodUnitExtra = hasExplicitRates
     ? (rodLaborRate + rodShippingRate)
     : (rodRingWeight > 0 && cementBags === 0 ? (shippingCost + laborCost) / rodRingWeight : 0);
 
   const cementUnitExtra = hasExplicitRates
-    ? (cementLaborRate + cementShippingRate)
-    : (cementBags > 0 && rodRingWeight === 0 ? (shippingCost + laborCost) / cementBags : 0);
+    ? (cementShippingRate + cementUnloadingRate)
+    : (cementBags > 0 && rodRingWeight === 0 ? (shippingCost + cementUnloadingCost) / cementBags : 0);
 
   const paidAmount = Number(invoice.paidAmount || 0);
   const dueAmount = Number(invoice.dueAmount !== undefined ? invoice.dueAmount : Math.max(0, totalAmount - paidAmount));
@@ -612,7 +615,7 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
               </div>
             )}
 
-            {laborCost > 0 && (
+            {(rodLaborCost > 0 || (laborCost > 0 && cementUnloadingCost === 0)) && (
               <div className="flex justify-between items-center">
                 <div className="flex flex-col">
                   <span className="text-slate-500">লেবার চার্জ (রড লোডিং)</span>
@@ -623,7 +626,7 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
                   )}
                 </div>
                 <div className="text-right space-y-0.5">
-                  <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(laborCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits((rodLaborCost > 0 ? rodLaborCost : (laborCost - cementUnloadingCost)).toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
                   <span className={cn(
                     "text-[9px] font-black px-1.5 py-0.2 rounded inline-block",
                     meta.rodLaborPaid 
@@ -631,6 +634,30 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
                       : "bg-amber-100 text-amber-800 border border-amber-200"
                   )}>
                     {meta.rodLaborPaid ? 'ড্রয়ার থেকে পরিশোধিত' : 'ড্রয়ারে প্রদেয়'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {cementUnloadingCost > 0 && (
+              <div className="flex justify-between items-center">
+                <div className="flex flex-col">
+                  <span className="text-slate-500">সিমেন্ট আনলোডিং লেবার (কাস্টমার প্রদেয়)</span>
+                  {cementUnloadingRate > 0 && (
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      {toBengaliDigits(cementBags)} বস্তা @ ৳{toBengaliDigits(cementUnloadingRate)}/বস্তা
+                    </span>
+                  )}
+                </div>
+                <div className="text-right space-y-0.5">
+                  <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  <span className={cn(
+                    "text-[9px] font-black px-1.5 py-0.2 rounded inline-block",
+                    meta.cementUnloadingPaid 
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-200" 
+                      : "bg-amber-100 text-amber-800 border border-amber-200"
+                  )}>
+                    {meta.cementUnloadingPaid ? 'ড্রয়ার থেকে পরিশোধিত' : 'ড্রয়ারে প্রদেয়'}
                   </span>
                 </div>
               </div>

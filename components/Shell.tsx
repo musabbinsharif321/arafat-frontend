@@ -95,7 +95,7 @@ export interface LaborChargeItem {
   id: string;
   invoiceId: string;
   date: string;
-  type?: 'loading' | 'unloading' | 'rod_loading';
+  type?: 'loading' | 'unloading' | 'rod_loading' | 'cement_unloading';
   partyName?: string;
   cementBags?: number;
   loadingRate?: number;
@@ -735,6 +735,45 @@ export function Shell({ children }: { children: ReactNode }) {
               rawTx: t
             });
           }
+
+          // 2D. Sales Cement Unloading Charges (সিমেন্ট আনলোডিং খরচ - কাস্টমার প্রদেয়, ড্রয়ারে যুক্ত হবে)
+          const cementUnloadRate = Number(meta.cementUnloadingRate || tAny.cementUnloadingRate || 0);
+          const cementUnloadCost = Number(meta.cementUnloadingCost !== undefined ? meta.cementUnloadingCost : (cementUnloadRate > 0 && cementBags > 0 ? cementUnloadRate * cementBags : 0));
+          const totalCementUnloadCost = cementUnloadCost > 0 ? cementUnloadCost : (cementUnloadRate * cementBags);
+
+          if (totalCementUnloadCost > 0 || (cementUnloadRate > 0 && cementBags > 0)) {
+            const isUnloadPaid = Boolean(meta.cementUnloadingPaid || tAny.cementUnloadingPaid);
+            const unloadPaidAmt = Number(meta.cementUnloadingPaidAmount !== undefined ? meta.cementUnloadingPaidAmount : (isUnloadPaid ? totalCementUnloadCost : 0));
+
+            const labDue = Math.max(0, Math.round((totalCementUnloadCost - unloadPaidAmt) * 100) / 100);
+            const labOver = Math.max(0, Math.round((unloadPaidAmt - totalCementUnloadCost) * 100) / 100);
+            let labStatus: 'pending' | 'paid' | 'partial' | 'overpaid' = 'pending';
+            if (labDue > 0) {
+              labStatus = unloadPaidAmt > 0 ? 'partial' : 'pending';
+            } else if (labOver > 0) {
+              labStatus = 'overpaid';
+            } else {
+              labStatus = 'paid';
+            }
+
+            lItems.push({
+              id: `sale-cement-unload-${t.id}`,
+              invoiceId: invNo,
+              date: txDate,
+              type: 'cement_unloading',
+              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              cementBags: cementBags > 0 ? cementBags : undefined,
+              loadingRate: cementUnloadRate > 0 ? cementUnloadRate : undefined,
+              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || 'গ্রাহকের সাইট / ডেলিভারি',
+              operatorName: meta.cementUnloadingSardar || meta.preparedBy || meta.operatorName || '',
+              amount: totalCementUnloadCost,
+              status: labStatus,
+              paidAmount: unloadPaidAmt,
+              dueAmount: labDue,
+              overpaidAmount: labOver,
+              rawTx: t
+            });
+          }
         }
       });
 
@@ -969,6 +1008,11 @@ export function Shell({ children }: { children: ReactNode }) {
         meta.rodLaborPaidAmount = item.amount;
         meta.rodLaborPaidAt = new Date().toISOString();
         meta.rodLaborPaidMethod = 'নগদ';
+      } else if (item.type === 'cement_unloading') {
+        meta.cementUnloadingPaid = true;
+        meta.cementUnloadingPaidAmount = item.amount;
+        meta.cementUnloadingPaidAt = new Date().toISOString();
+        meta.cementUnloadingPaidMethod = 'নগদ';
       } else {
         meta.laborStatus = 'paid';
         meta.laborPaidAmount = item.amount;
@@ -978,12 +1022,16 @@ export function Shell({ children }: { children: ReactNode }) {
         ? `লোডিং লেবার বিল (${item.partyName || 'বিক্রয় সিমেন্ট'})`
         : item.type === 'rod_loading'
         ? `রড লোডিং লেবার বিল (${item.partyName || 'বিক্রয় রড'})`
+        : item.type === 'cement_unloading'
+        ? `সিমেন্ট আনলোডিং লেবার বিল (${item.partyName || 'বিক্রয় সিমেন্ট'})`
         : `আনলোডিং লেবার বিল (${item.partyName || 'ক্রয়'})`;
 
       const typeLabel = item.type === 'loading'
         ? 'বিক্রয় সিমেন্ট লোডিং'
         : item.type === 'rod_loading'
         ? 'বিক্রয় রড লোডিং'
+        : item.type === 'cement_unloading'
+        ? 'বিক্রয় সিমেন্ট আনলোডিং'
         : 'ক্রয় আনলোডিং';
 
       // 1. Record payment_out transaction so Cash balance and Transactions list immediately deduct cash (ক্যাশ থেকে আউট)
@@ -1077,6 +1125,9 @@ export function Shell({ children }: { children: ReactNode }) {
       } else if (item.type === 'rod_loading') {
         meta.rodLaborPaid = true;
         meta.rodLaborPaidAmount = item.amount;
+      } else if (item.type === 'cement_unloading') {
+        meta.cementUnloadingPaid = true;
+        meta.cementUnloadingPaidAmount = item.amount;
       } else {
         meta.laborStatus = 'paid';
         meta.laborPaidAmount = item.amount;
@@ -2079,6 +2130,10 @@ export function Shell({ children }: { children: ReactNode }) {
                               <span className="text-[10px] font-bold bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-md border border-sky-500/30">
                                 🔹 বিক্রয় লোডিং (রড)
                               </span>
+                            ) : item.type === 'cement_unloading' ? (
+                              <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                                🏗️ বিক্রয় আনলোডিং (সিমেন্ট)
+                              </span>
                             ) : (
                               <span className="text-[10px] font-bold bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-md border border-blue-500/30">
                                 🏗️ ক্রয় আনলোডিং
@@ -2111,6 +2166,20 @@ export function Shell({ children }: { children: ReactNode }) {
                               {item.rodKg ? (
                                 <p className="text-slate-300">
                                   রড ও রিং ওজন: <strong className="text-sky-300 font-mono">{toBnDigits(item.rodKg)} কেজি</strong> {item.rodRate ? `(@ ৳${toBnDigits(item.rodRate)}/কেজি)` : ''}
+                                </p>
+                              ) : null}
+                              {item.unloadingSite && (
+                                <p className="text-slate-400 text-[11px]">ডেলিভারি ঠিকানা: {item.unloadingSite}</p>
+                              )}
+                            </div>
+                          ) : item.type === 'cement_unloading' ? (
+                            <div className="text-xs space-y-0.5 mt-1.5">
+                              <p className="text-slate-300">
+                                গ্রাহক: <strong className="text-white">{item.partyName || 'খুচরা গ্রাহক'}</strong>
+                              </p>
+                              {item.cementBags ? (
+                                <p className="text-slate-300">
+                                  সিমেন্ট পরিমাণ: <strong className="text-emerald-300 font-mono">{toBnDigits(item.cementBags)} বস্তা</strong> {item.loadingRate ? `(@ ৳${toBnDigits(item.loadingRate)}/বস্তা)` : ''}
                                 </p>
                               ) : null}
                               {item.unloadingSite && (
