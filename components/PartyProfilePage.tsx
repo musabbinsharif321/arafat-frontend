@@ -2647,7 +2647,7 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
                   <h3 className="text-sm font-bold text-slate-900">অভ্যন্তরীণ নোট</h3>
                   {party?.createdAt && (
                     <span className="text-[11px] text-slate-400 font-medium">
-                      যুক্ত করার তারিখ: {toBnDigits(party.createdAt.split('T')[0])}
+                      যুক্ত করার তারিখ: {formatBnDate(party.createdAt, 'dd MMMM yyyy')}
                     </span>
                   )}
                 </div>

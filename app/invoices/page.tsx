@@ -756,7 +756,7 @@ function InvoicesContent() {
     try {
       const date = at?.toDate ? at.toDate() : new Date(at);
       if (isNaN(date.getTime())) return '';
-      return toBengaliDigits(format(date, 'dd MMM yyyy, hh:mm a', { locale: bn }));
+      return toBengaliDigits(format(date, 'dd MMMM yyyy, hh:mm a', { locale: bn }));
     } catch {
       return '';
     }
@@ -1952,7 +1952,7 @@ function InvoicesContent() {
                       <TableCell className="font-bengali text-slate-800 py-4 px-4">
                         <p className="font-bold text-sm text-slate-900">{inv.customerName}</p>
                         {inv.customerPhone && (
-                          <p className="text-xs text-slate-400 font-sans mt-0.5">{inv.customerPhone}</p>
+                          <p className="text-xs text-slate-400 font-bengali mt-0.5">{toBengaliDigits(inv.customerPhone)}</p>
                         )}
                         <div className="flex flex-wrap items-center gap-1 mt-1">
                           {inv.siteName && (

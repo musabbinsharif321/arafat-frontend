@@ -1213,7 +1213,7 @@ function TransactionsContent() {
     if (!at) return '—';
     try {
       const date = new Date(at);
-      const formatted = format(date, 'dd/MM/yyyy hh:mm a', { locale: bn });
+      const formatted = format(date, 'dd MMMM yyyy, hh:mm a', { locale: bn });
       return toBengaliDigits(formatted);
     } catch {
       return '—';

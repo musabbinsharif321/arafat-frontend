@@ -883,7 +883,7 @@ export function Shell({ children }: { children: ReactNode }) {
         total_amount: Number(payAmount),
         paid_amount: Number(payAmount),
         due_amount: 0,
-        payment_method: 'Cash',
+        payment_method: 'cash',
         notes: JSON.stringify({
           category: 'পরিবহন খরচ',
           expenseCategory: 'পরিবহন খরচ',
@@ -1041,7 +1041,7 @@ export function Shell({ children }: { children: ReactNode }) {
         total_amount: Number(payAmount),
         paid_amount: Number(payAmount),
         due_amount: 0,
-        payment_method: 'Cash',
+        payment_method: 'cash',
         notes: JSON.stringify({
           category: 'লোডিং ও খালাস খরচ',
           expenseCategory: 'লোডিং ও খালাস খরচ',
@@ -1061,6 +1061,8 @@ export function Shell({ children }: { children: ReactNode }) {
         ? `বিক্রয় চালান লোডিং চার্জ (চালান #${item.invoiceId})`
         : item.type === 'rod_loading'
         ? `বিক্রয় চালান রড লোডিং চার্জ (চালান #${item.invoiceId})`
+        : item.type === 'cement_unloading'
+        ? `বিক্রয় চালান সিমেন্ট আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})`
         : `ক্রয় চালান আনলোডিং চার্জ (চালান #${item.invoiceId})`;
 
       const existingExpenses = await api.expenses.list({ search: item.invoiceId }).catch(() => []);
@@ -1070,7 +1072,9 @@ export function Shell({ children }: { children: ReactNode }) {
             ? (e.title?.includes('লোডিং') && (e.title?.includes('সিমেন্ট') || !e.title?.includes('রড')))
             : item.type === 'rod_loading'
             ? (e.title?.includes('রড') || (e.title?.includes('লোডিং') && e.title?.includes('রড')))
-            : (e.title?.includes('আনলোডিং') || e.title?.includes('ক্রয় চালান') || e.title?.includes('লেবার'))
+            : item.type === 'cement_unloading'
+            ? (e.title?.includes('আনলোডিং') && (e.title?.includes('সিমেন্ট') || e.title?.includes('বিক্রয়')))
+            : (e.title?.includes('ক্রয় চালান') || (e.title?.includes('আনলোডিং') && !e.title?.includes('বিক্রয়')) || e.title?.includes('লেবার'))
         )
       );
       if (!isAlreadyRecorded) {
@@ -1084,6 +1088,8 @@ export function Shell({ children }: { children: ReactNode }) {
             ? `বিক্রয় চালান নং: ${item.invoiceId} | গ্রাহক: ${item.partyName || ''} | সিমেন্ট: ${item.cementBags || 0} বস্তা`
             : item.type === 'rod_loading'
             ? `বিক্রয় চালান নং: ${item.invoiceId} | গ্রাহক: ${item.partyName || ''} | রড ও রিং: ${item.rodKg || 0} কেজি (@ ৳${item.rodRate || 0}/কেজি)`
+            : item.type === 'cement_unloading'
+            ? `বিক্রয় চালান নং: ${item.invoiceId} | গ্রাহক: ${item.partyName || ''} | সিমেন্ট আনলোডিং: ${item.cementBags || 0} বস্তা`
             : `ক্রয় চালান নং: ${item.invoiceId} | সাপ্লায়ার: ${item.partyName || ''} | স্থান: ${item.unloadingSite || 'প্রধান গুদাম'}`
         }).catch(err => console.warn('Expense record fallback:', err));
       }
@@ -1092,7 +1098,7 @@ export function Shell({ children }: { children: ReactNode }) {
       const txId = item.rawTx?.id || item.id;
       await api.transactions.update(txId, { notes: newNotes });
 
-      toast.success(`${item.type === 'loading' ? 'সিমেন্ট লোডিং' : item.type === 'rod_loading' ? 'রড লোডিং' : 'লেবার'} খরচ ৳ ${payAmount.toLocaleString('bn-BD')} ক্যাশ থেকে পরিশোধ করা হয়েছে!`);
+      toast.success(`${item.type === 'loading' ? 'সিমেন্ট লোডিং' : item.type === 'rod_loading' ? 'রড লোডিং' : item.type === 'cement_unloading' ? 'সিমেন্ট আনলোডিং' : 'লেবার'} খরচ ৳ ${payAmount.toLocaleString('bn-BD')} ক্যাশ থেকে পরিশোধ করা হয়েছে!`);
       void loadChequesAndOrders();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('orderUpdated'));

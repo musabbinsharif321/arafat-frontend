@@ -421,7 +421,7 @@ export default function OrdersPage() {
     try {
       const date = at?.toDate ? at.toDate() : new Date(at);
       if (isNaN(date.getTime())) return '';
-      return toBengaliDigits(format(date, 'dd MMM yyyy, hh:mm a', { locale: bn }));
+      return toBengaliDigits(format(date, 'dd MMMM yyyy, hh:mm a', { locale: bn }));
     } catch {
       return '';
     }

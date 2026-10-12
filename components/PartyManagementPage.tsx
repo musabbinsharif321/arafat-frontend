@@ -1202,7 +1202,7 @@ export default function PartyManagementPage({ type }: PartyManagementPageProps) 
                           {p.joinedDate && (
                             <div className="flex items-center justify-between gap-2 text-[11px]">
                               <span className="text-slate-400 font-medium">যোগদান:</span>
-                              <span className="font-medium text-slate-700">{toBnDigits(p.joinedDate)}</span>
+                              <span className="font-medium text-slate-700">{formatBnDate(p.joinedDate, 'dd MMMM yyyy')}</span>
                             </div>
                           )}
                         </div>
@@ -1451,7 +1451,7 @@ export default function PartyManagementPage({ type }: PartyManagementPageProps) 
                               </div>
                               <div>
                                 <p className="font-bold text-slate-900 text-xs">{p.name}</p>
-                                <p className="text-[11px] text-slate-400 font-medium">{p.businessName ? `${p.businessName} • ` : ''}{p.email || `${p.phone}@dokan.com`}</p>
+                                <p className="text-[11px] text-slate-400 font-medium">{p.businessName ? `${p.businessName} • ` : ''}{p.email ? p.email : (p.phone ? toBnDigits(p.phone) : '')}</p>
                               </div>
                             </div>
                           </TableCell>
@@ -1524,7 +1524,7 @@ export default function PartyManagementPage({ type }: PartyManagementPageProps) 
                           </TableCell>
 
                           <TableCell className="py-3.5 px-4 text-left">
-                            <p className="text-slate-700 font-medium text-[11px]">{p.joinedDate ? toBnDigits(p.joinedDate) : '—'}</p>
+                            <p className="text-slate-700 font-medium text-[11px]">{p.joinedDate ? formatBnDate(p.joinedDate, 'dd MMMM yyyy') : '—'}</p>
                           </TableCell>
 
                           <TableCell className="py-3.5 px-4 text-center">

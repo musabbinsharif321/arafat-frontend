@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { bn } from 'date-fns/locale';
 import { cn, formatDualStock } from '@/lib/utils';
 import { SupplierSearchSelect } from '@/components/SupplierSearchSelect';
 import { CascadingProductSelector, SelectedProductDetails } from '@/components/CascadingProductSelector';
@@ -1014,7 +1015,7 @@ export default function PurchasesPage() {
     if (!dateVal) return '—';
     try {
       const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
-      return format(d, 'dd MMM yyyy');
+      return toBengaliDigits(format(d, 'dd MMMM yyyy, hh:mm a', { locale: bn }));
     } catch { return '—'; }
   };
 

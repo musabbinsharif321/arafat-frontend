@@ -409,7 +409,7 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
               <div className="flex">
                 <span className="w-28 shrink-0 text-slate-700">মোবাইল নম্বর</span>
                 <span className="shrink-0 px-1">:</span>
-                <span className="font-mono">{invoice.customerPhone || '—'}</span>
+                <span className="font-mono">{invoice.customerPhone ? toBengaliDigits(invoice.customerPhone) : '—'}</span>
               </div>
               <div className="flex">
                 <span className="w-28 shrink-0 text-slate-700">ঠিকানা</span>
