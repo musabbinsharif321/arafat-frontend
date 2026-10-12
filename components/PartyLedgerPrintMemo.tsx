@@ -42,6 +42,27 @@ export const formatLedgerDate = (dateVal: any): string => {
   }
 };
 
+export const isRodItem = (it: any): boolean => {
+  if (!it) return false;
+  const name = (it.product_name || it.name || '').toLowerCase();
+  const unit = (it.unit || '').toLowerCase();
+  const cat = (it.category || it.category_name || '').toLowerCase();
+  return cat.includes('রড') || cat.includes('rod') || cat.includes('রিং') || cat.includes('ring') ||
+         name.includes('রড') || name.includes('rod') || name.includes('রিং') || name.includes('ring') ||
+         name.includes('মিলি') || name.includes('mm') ||
+         unit.includes('কেজি') || unit.includes('টন') || unit.includes('ton') || unit.includes('kg');
+};
+
+export const isCementItem = (it: any): boolean => {
+  if (!it) return false;
+  const name = (it.product_name || it.name || '').toLowerCase();
+  const unit = (it.unit || '').toLowerCase();
+  const cat = (it.category || it.category_name || '').toLowerCase();
+  return cat.includes('সিমেন্ট') || cat.includes('cement') ||
+         name.includes('সিমেন্ট') || name.includes('cement') ||
+         unit.includes('বস্তা') || unit.includes('ব্যাগ') || unit.includes('bag');
+};
+
 export function buildLedgerPrintRows(
   party: PartyProfile | null,
   transactions: any[],
@@ -50,7 +71,9 @@ export function buildLedgerPrintRows(
   startDate?: string,
   endDate?: string,
   isSupplier: boolean = false,
-  selectedSite?: string
+  selectedSite?: string,
+  categoryFilter: 'all' | 'rod' | 'cement' = 'all',
+  txnTypeFilter: string = 'all'
 ): { rows: PrintLedgerRow[]; totalAmount: number; totalDeposit: number; netBalance: number } {
   const rows: PrintLedgerRow[] = [];
   let totalAmount = 0;
@@ -63,7 +86,7 @@ export function buildLedgerPrintRows(
   const isSiteFiltered = Boolean(selectedSite && selectedSite !== 'all');
 
   // Separate opening / previous balance from transactions prior to startDate (only for combined/all sites or general account)
-  let priorBalance = (isSiteFiltered && selectedSite !== '__no_site__') ? 0 : Number(party?.openingBalance || 0);
+  let priorBalance = (categoryFilter !== 'all' || (isSiteFiltered && selectedSite !== '__no_site__')) ? 0 : Number(party?.openingBalance || 0);
 
   const sorted = [...transactions].sort((a, b) => {
     const da = new Date(a.createdAt || 0);
@@ -207,6 +230,7 @@ export function buildLedgerPrintRows(
         });
       }
     } else if (txType === 'payment_in' || txType === 'payment_out' || (isEngineer && txType === 'payment')) {
+      if (txnTypeFilter === 'sale') return;
       const paid = Number(tx.paidAmount || tx.totalAmount || 0);
       if (paid > 0) {
         totalDeposit += paid;
@@ -241,8 +265,17 @@ export function buildLedgerPrintRows(
       const refundPaid = Number(tx.paidAmount || 0);
       const items = tx.items || [];
 
-      if (items.length > 0) {
-        items.forEach((it: any) => {
+      let relevantRetItems = items;
+      if (categoryFilter === 'rod') {
+        relevantRetItems = items.filter(isRodItem);
+        if (items.length > 0 && relevantRetItems.length === 0) return;
+      } else if (categoryFilter === 'cement') {
+        relevantRetItems = items.filter(isCementItem);
+        if (items.length > 0 && relevantRetItems.length === 0) return;
+      }
+
+      if (relevantRetItems.length > 0) {
+        relevantRetItems.forEach((it: any) => {
           let name = cleanLegacyBengaliText(it.product_name || it.name || 'পণ্য ফেরত');
           const qty = Number(it.quantity || 1);
           const price = Number(it.price || 0);
@@ -260,7 +293,7 @@ export function buildLedgerPrintRows(
             rawAmount: 0,
           });
         });
-      } else if (retAmt > 0) {
+      } else if (categoryFilter === 'all' && retAmt > 0) {
         totalDeposit += retAmt;
         rows.push({
           date: txDateStr,
@@ -352,7 +385,18 @@ export function buildLedgerPrintRows(
       }
 
       if (items.length > 0) {
-        items.forEach((it: any) => {
+        let relevantItems = items;
+        if (categoryFilter === 'rod') {
+          relevantItems = items.filter(isRodItem);
+        } else if (categoryFilter === 'cement') {
+          relevantItems = items.filter(isCementItem);
+        }
+
+        if (categoryFilter !== 'all' && relevantItems.length === 0) {
+          return;
+        }
+
+        relevantItems.forEach((it: any) => {
           let name = cleanLegacyBengaliText(it.product_name || it.name || 'পণ্য');
           const qty = Number(it.quantity || 1);
           const price = Number(it.price || 0);
@@ -370,7 +414,45 @@ export function buildLedgerPrintRows(
             rawAmount: itemTotal,
           });
         });
+
+        if (categoryFilter === 'rod') {
+          const rodLab = Number(meta.rodLaborCost || (meta.rodLaborRate ? meta.rodLaborRate * Number(meta.rodRingTotalKg || 0) : 0));
+          if (rodLab > 0) {
+            totalAmount += rodLab;
+            rows.push({
+              date: txDateStr,
+              description: 'লেবার খরচ (রড)',
+              quantity: '১.০',
+              rate: formatLedgerNum(rodLab),
+              deposit: '-',
+              amount: formatLedgerNum(rodLab),
+              rawDeposit: 0,
+              rawAmount: rodLab,
+            });
+          }
+        } else if (categoryFilter === 'cement') {
+          const cemUnload = Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0));
+          if (cemUnload > 0) {
+            totalAmount += cemUnload;
+            rows.push({
+              date: txDateStr,
+              description: 'সিমেন্ট আনলোডিং লেবার',
+              quantity: '১.০',
+              rate: formatLedgerNum(cemUnload),
+              deposit: '-',
+              amount: formatLedgerNum(cemUnload),
+              rawDeposit: 0,
+              rawAmount: cemUnload,
+            });
+          }
+        }
       } else {
+        if (categoryFilter !== 'all') {
+          const descStr = `${tx.description || ''} ${tx.notes || ''}`.toLowerCase();
+          if (categoryFilter === 'rod' && !descStr.includes('রড') && !descStr.includes('rod') && !descStr.includes('রিং')) return;
+          if (categoryFilter === 'cement' && !descStr.includes('সিমেন্ট') && !descStr.includes('cement')) return;
+        }
+
         let bill = Number(tx.subtotal || tx.totalAmount || 0);
         if (!tx.subtotal && invDiscount > 0) {
           bill += invDiscount;
@@ -394,55 +476,57 @@ export function buildLedgerPrintRows(
       const shipPayer = meta.shippingPayer || (tx as any).shippingPayer || 'shop';
       const laborPayer = meta.laborPayer || (tx as any).laborPayer || 'shop';
 
-      // Labor charge: Added to customer sales, or to supplier purchases if supplier pays/bills it
-      const shouldAddLabor = isSupplierTx ? (laborPayer === 'supplier' && labCost > 0) : (labCost > 0);
-      if (shouldAddLabor) {
-        totalAmount += labCost;
-        rows.push({
-          date: txDateStr,
-          description: isSupplierTx ? 'আনলোডিং / লেবার খরচ (সাপ্লায়ার বহন করবে)' : 'লেবারি',
-          quantity: '১.০',
-          rate: formatLedgerNum(labCost),
-          deposit: '-',
-          amount: formatLedgerNum(labCost),
-          rawDeposit: 0,
-          rawAmount: labCost,
-        });
-      }
+      // Labor charge: Added to customer sales, or to supplier purchases if supplier pays/bills it (only for all-product view)
+      if (categoryFilter === 'all') {
+        const shouldAddLabor = isSupplierTx ? (laborPayer === 'supplier' && labCost > 0) : (labCost > 0);
+        if (shouldAddLabor) {
+          totalAmount += labCost;
+          rows.push({
+            date: txDateStr,
+            description: isSupplierTx ? 'আনলোডিং / লেবার খরচ (সাপ্লায়ার বহন করবে)' : 'লেবারি',
+            quantity: '১.০',
+            rate: formatLedgerNum(labCost),
+            deposit: '-',
+            amount: formatLedgerNum(labCost),
+            rawDeposit: 0,
+            rawAmount: labCost,
+          });
+        }
 
-      // Transport / shipping charge: Added to customer sales, or to supplier purchases if supplier pays/bills it
-      const shouldAddShipping = isSupplierTx ? (shipPayer === 'supplier' && shipCost > 0) : (shipCost > 0);
-      if (shouldAddShipping) {
-        totalAmount += shipCost;
-        rows.push({
-          date: txDateStr,
-          description: isSupplierTx ? 'গাড়ি ভাড়া / পরিবহন (সাপ্লায়ার বহন করবে)' : 'ভাড়া',
-          quantity: '১.০',
-          rate: formatLedgerNum(shipCost),
-          deposit: '-',
-          amount: formatLedgerNum(shipCost),
-          rawDeposit: 0,
-          rawAmount: shipCost,
-        });
-      }
+        // Transport / shipping charge
+        const shouldAddShipping = isSupplierTx ? (shipPayer === 'supplier' && shipCost > 0) : (shipCost > 0);
+        if (shouldAddShipping) {
+          totalAmount += shipCost;
+          rows.push({
+            date: txDateStr,
+            description: isSupplierTx ? 'গাড়ি ভাড়া / পরিবহন (সাপ্লায়ার বহন করবে)' : 'ভাড়া',
+            quantity: '১.০',
+            rate: formatLedgerNum(shipCost),
+            deposit: '-',
+            amount: formatLedgerNum(shipCost),
+            rawDeposit: 0,
+            rawAmount: shipCost,
+          });
+        }
 
-      if (invDiscount > 0) {
-        totalAmount -= invDiscount;
-        rows.push({
-          date: txDateStr,
-          description: isSupplier ? 'বিশেষ ছাড় / কমিশন' : 'বিশেষ ছাড় (ডিসকাউন্ট)',
-          quantity: '-',
-          rate: '-',
-          deposit: '-',
-          amount: `-${formatLedgerNum(invDiscount)}`,
-          rawDeposit: 0,
-          rawAmount: -invDiscount,
-        });
+        if (invDiscount > 0) {
+          totalAmount -= invDiscount;
+          rows.push({
+            date: txDateStr,
+            description: isSupplier ? 'বিশেষ ছাড় / কমিশন' : 'বিশেষ ছাড় (ডিসকাউন্ট)',
+            quantity: '-',
+            rate: '-',
+            deposit: '-',
+            amount: `-${formatLedgerNum(invDiscount)}`,
+            rawDeposit: 0,
+            rawAmount: -invDiscount,
+          });
+        }
       }
 
       // Immediate cash payment on invoice
       const initPaid = Number(tx.paidAmount || 0);
-      if (initPaid > 0) {
+      if (initPaid > 0 && txnTypeFilter !== 'sale' && categoryFilter === 'all') {
         totalDeposit += initPaid;
         rows.push({
           date: txDateStr,
@@ -471,6 +555,8 @@ interface PartyLedgerPrintMemoProps {
   startDate?: string;
   endDate?: string;
   selectedSite?: string;
+  categoryFilter?: 'all' | 'rod' | 'cement';
+  txnTypeFilter?: string;
 }
 
 export const PartyLedgerPrintMemo: React.FC<PartyLedgerPrintMemoProps> = ({
@@ -481,7 +567,9 @@ export const PartyLedgerPrintMemo: React.FC<PartyLedgerPrintMemoProps> = ({
   isEngineer = false,
   startDate,
   endDate,
-  selectedSite
+  selectedSite,
+  categoryFilter = 'all',
+  txnTypeFilter = 'all'
 }) => {
   const [promo] = React.useState(() => {
     const defaults = {
@@ -506,7 +594,9 @@ export const PartyLedgerPrintMemo: React.FC<PartyLedgerPrintMemoProps> = ({
     startDate,
     endDate,
     isSupplier,
-    selectedSite
+    selectedSite,
+    categoryFilter,
+    txnTypeFilter
   );
 
   const hasSelectedSite = Boolean(selectedSite && selectedSite !== 'all');
@@ -571,7 +661,9 @@ export const PartyLedgerPrintMemo: React.FC<PartyLedgerPrintMemoProps> = ({
       <div className="border border-black mb-1 bg-white">
         <div className="relative border-b border-black py-0.5 px-3 text-center">
           <span className="font-black text-xs tracking-widest uppercase">
-            {hasSelectedSite ? (selectedSite === '__no_site__' ? 'খতিয়ান / চালান (সাধারণ খাতা - সাইট ছাড়া)' : `খতিয়ান / চালান (সাইট: ${selectedSite})`) : 'খতিয়ান / চালান'}
+            {hasSelectedSite 
+              ? (selectedSite === '__no_site__' ? `খতিয়ান / চালান (সাধারণ খাতা - সাইট ছাড়া${categoryFilter === 'rod' ? ' - শুধু রড' : categoryFilter === 'cement' ? ' - শুধু সিমেন্ট' : ''})` : `খতিয়ান / চালান (সাইট: ${selectedSite}${categoryFilter === 'rod' ? ' - শুধু রড' : categoryFilter === 'cement' ? ' - শুধু সিমেন্ট' : ''})`) 
+              : `খতিয়ান / চালান${categoryFilter === 'rod' ? ' (শুধু রড)' : categoryFilter === 'cement' ? ' (শুধু সিমেন্ট)' : ''}`}
           </span>
           <span className="absolute right-3 top-0.5 font-bold text-xs">০১</span>
         </div>

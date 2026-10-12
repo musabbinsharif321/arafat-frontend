@@ -144,17 +144,39 @@ export interface LedgerEntry {
   account?: string;
 }
 
+export const isRodItem = (it: any): boolean => {
+  if (!it) return false;
+  const name = (it.product_name || it.name || '').toLowerCase();
+  const unit = (it.unit || '').toLowerCase();
+  const cat = (it.category || it.category_name || '').toLowerCase();
+  return cat.includes('রড') || cat.includes('rod') || cat.includes('রিং') || cat.includes('ring') ||
+         name.includes('রড') || name.includes('rod') || name.includes('রিং') || name.includes('ring') ||
+         name.includes('মিলি') || name.includes('mm') ||
+         unit.includes('কেজি') || unit.includes('টন') || unit.includes('ton') || unit.includes('kg');
+};
+
+export const isCementItem = (it: any): boolean => {
+  if (!it) return false;
+  const name = (it.product_name || it.name || '').toLowerCase();
+  const unit = (it.unit || '').toLowerCase();
+  const cat = (it.category || it.category_name || '').toLowerCase();
+  return cat.includes('সিমেন্ট') || cat.includes('cement') ||
+         name.includes('সিমেন্ট') || name.includes('cement') ||
+         unit.includes('বস্তা') || unit.includes('ব্যাগ') || unit.includes('bag');
+};
+
 export function generateLedgerEntries(
   party: PartyProfile | null,
   transactions: TransactionDoc[],
   isCustomer: boolean,
-  isEngineer: boolean = false
+  isEngineer: boolean = false,
+  categoryFilter: 'all' | 'rod' | 'cement' = 'all'
 ): LedgerEntry[] {
   const entries: LedgerEntry[] = [];
   let cumulativeBalance = 0;
 
-  // 1. Opening Balance
-  if (party && Number(party.openingBalance || 0) !== 0) {
+  // 1. Opening Balance (Only shown when viewing all products)
+  if (categoryFilter === 'all' && party && Number(party.openingBalance || 0) !== 0) {
     const opBal = Number(party.openingBalance);
     cumulativeBalance += opBal;
     entries.push({
@@ -273,6 +295,7 @@ export function generateLedgerEntries(
     } else {
       // --- CUSTOMER / SUPPLIER NORMAL LEDGER LOGIC ---
       if (txType === 'payment_in' || txType === 'payment_out') {
+        if (categoryFilter !== 'all') return;
         const paidVal = Number(tx.paidAmount || 0);
         const discountVal = Number(tx.discount || 0);
         // If paidAmount is 0 and totalAmount was set to discount, use paidAmount + discount
@@ -310,6 +333,7 @@ export function generateLedgerEntries(
           dueAmount: 0
         });
       } else if (txType === 'loan_in') {
+        if (categoryFilter !== 'all') return;
         const loanAmount = Number(tx.totalAmount || tx.paidAmount || 0);
         cumulativeBalance += loanAmount;
         const loanNo = tx.invoiceNo || `LOAN-${tx.id.slice(0, 5).toUpperCase()}`;
@@ -346,9 +370,19 @@ export function generateLedgerEntries(
         const retNo = tx.invoiceNo || `${retPrefix}${tx.id.slice(0, 5).toUpperCase()}`;
 
         // Format detailed items for return
+        const rawRetItems = tx.items || [];
+        let relevantRetItems = rawRetItems;
+        if (categoryFilter === 'rod') {
+          relevantRetItems = rawRetItems.filter(isRodItem);
+          if (rawRetItems.length > 0 && relevantRetItems.length === 0) return;
+        } else if (categoryFilter === 'cement') {
+          relevantRetItems = rawRetItems.filter(isCementItem);
+          if (rawRetItems.length > 0 && relevantRetItems.length === 0) return;
+        }
+
         let returnDesc = '';
-        if (tx.items && tx.items.length > 0) {
-          const itemSummary = tx.items.map((it: any) => {
+        if (relevantRetItems.length > 0) {
+          const itemSummary = relevantRetItems.map((it: any) => {
             const name = cleanLegacyBengaliText(it.product_name || it.name || 'পণ্য');
             const qty = toBnDigits(it.quantity || 1);
             const unit = it.unit || 'টি';
@@ -360,6 +394,7 @@ export function generateLedgerEntries(
             returnDesc += ` [বিবরণ: ${tx.note}]`;
           }
         } else {
+          if (categoryFilter !== 'all') return;
           returnDesc = `${isCustomer ? 'পণ্য ফেরত (বিক্রয় ফেরত)' : 'পণ্য ফেরত (ক্রয় ফেরত)'} (${tx.note || 'পণ্য ফেরত জমা'})`;
         }
 
@@ -415,8 +450,27 @@ export function generateLedgerEntries(
           ? Number(tx.discount) 
           : Number(meta.discountFlat || meta.discount || meta.discountAmount || meta.cartTotalDiscount || meta.commission || meta.commissionAmount || 0);
 
-        let itemDesc = tx.items && tx.items.length > 0
-          ? tx.items.map((it: any) => {
+        const rawItems = tx.items || [];
+        const isRodOnly = categoryFilter === 'rod';
+        const isCementOnly = categoryFilter === 'cement';
+
+        let relevantItems = rawItems;
+        if (isRodOnly) {
+          relevantItems = rawItems.filter(isRodItem);
+          if (rawItems.length > 0 && relevantItems.length === 0) return;
+        } else if (isCementOnly) {
+          relevantItems = rawItems.filter(isCementItem);
+          if (rawItems.length > 0 && relevantItems.length === 0) return;
+        }
+
+        if (rawItems.length === 0 && categoryFilter !== 'all') {
+          const descStr = `${tx.description || ''} ${tx.notes || ''}`.toLowerCase();
+          if (isRodOnly && !descStr.includes('রড') && !descStr.includes('rod') && !descStr.includes('রিং')) return;
+          if (isCementOnly && !descStr.includes('সিমেন্ট') && !descStr.includes('cement')) return;
+        }
+
+        let itemDesc = relevantItems.length > 0
+          ? relevantItems.map((it: any) => {
               const name = cleanLegacyBengaliText(it.product_name || it.name || 'পণ্য');
               const qty = toBnDigits(it.quantity || 1);
               const unit = it.unit || 'টি';
@@ -425,7 +479,7 @@ export function generateLedgerEntries(
             }).join(', ')
           : (isCustomer ? 'পণ্য বিক্রয় (চালান)' : 'পণ্য ক্রয় (চালান)');
 
-        if (invDiscount > 0) {
+        if (invDiscount > 0 && categoryFilter === 'all') {
           itemDesc += ` [ছাড়: ৳${toBnDigits(invDiscount.toLocaleString('en-IN'))}]`;
         }
 
@@ -496,7 +550,17 @@ export function generateLedgerEntries(
           }
         } else {
           // Normal Customer Sale
-          const debitVal = Math.max(0, Number(tx.totalAmount || 0));
+          let debitVal = Math.max(0, Number(tx.totalAmount || 0));
+          if (isRodOnly && rawItems.length > 0) {
+            const rodGoods = relevantItems.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity || 1) * Number(it.price || 0))), 0);
+            const rodLab = Number(meta.rodLaborCost || (meta.rodLaborRate ? meta.rodLaborRate * Number(meta.rodRingTotalKg || 0) : 0));
+            debitVal = rodGoods + rodLab;
+          } else if (isCementOnly && rawItems.length > 0) {
+            const cemGoods = relevantItems.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity || 1) * Number(it.price || 0))), 0);
+            const cemUnload = Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0));
+            debitVal = cemGoods + cemUnload;
+          }
+
           cumulativeBalance += debitVal;
 
           entries.push({
@@ -516,7 +580,7 @@ export function generateLedgerEntries(
         }
 
         const creditVal = Number(tx.paidAmount || 0);
-        if (creditVal > 0) {
+        if (creditVal > 0 && categoryFilter === 'all') {
           cumulativeBalance -= creditVal;
           const rcvPrefix = isCustomer ? 'RCV-2026-' : 'PAY-2026-';
           const rcvNo = `${rcvPrefix}${tx.id.slice(0, 5).toUpperCase()}`;
@@ -579,6 +643,7 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
 
   // Ledger Filter States
   const [activeTab, setActiveTab] = useState<'all' | 'sale' | 'receive' | 'payment' | 'adjustment' | 'return'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'rod' | 'cement'>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [txnTypeFilter, setTxnTypeFilter] = useState('all');
@@ -981,7 +1046,7 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
 
   // Generate Chronological Ledger Entries
   const ledgerParty = (selectedSite !== 'all' && selectedSite !== '__no_site__') ? { ...party!, openingBalance: 0 } : party;
-  const ledgerEntries = generateLedgerEntries(ledgerParty, siteTransactions, isCustomer, isEngineer);
+  const ledgerEntries = generateLedgerEntries(ledgerParty, siteTransactions, isCustomer, isEngineer, categoryFilter);
 
   const rawClosingBalance = ledgerEntries.length > 0
     ? ledgerEntries[ledgerEntries.length - 1].runningBalance
@@ -1105,6 +1170,8 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
           startDate={startDate}
           endDate={endDate}
           selectedSite={selectedSite}
+          categoryFilter={categoryFilter}
+          txnTypeFilter={activeTab}
         />
       </div>
 
@@ -1786,81 +1853,122 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
             <CardContent className="p-4 sm:p-5 space-y-4">
               
               {/* 1. FILTER CONTROL BAR */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 
                 {/* Left Filter Controls */}
-                <div className="flex flex-wrap items-center gap-2.5 flex-1">
-                  
-                  {/* Bengali Date Range Picker */}
-                  <BengaliDateRangePicker
-                    startDate={startDate}
-                    endDate={endDate}
-                    onChange={(start, end) => {
-                      setStartDate(start);
-                      setEndDate(end);
-                    }}
-                    placeholder="তারিখ ফিল্টার"
-                  />
+                <div className="flex flex-wrap items-end gap-3 flex-1">
+                  {/* 1. Date Range Filter */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-slate-400" />
+                      তারিখ
+                    </span>
+                    <BengaliDateRangePicker
+                      startDate={startDate}
+                      endDate={endDate}
+                      onChange={(start, end) => {
+                        setStartDate(start);
+                        setEndDate(end);
+                      }}
+                      placeholder="তারিখ ফিল্টার"
+                    />
+                  </div>
 
-                  {/* Transaction Type Select */}
-                  <Select value={activeTab} onValueChange={(val: any) => setActiveTab(val)}>
-                    <SelectTrigger className="w-36 h-9 bg-white border-slate-200 rounded-xl text-xs font-bold">
-                      <SelectValue placeholder="সব লেনদেন" />
-                    </SelectTrigger>
-                    <SelectContent className="font-bengali text-xs">
-                      <SelectItem value="all">সব লেনদেন</SelectItem>
-                      <SelectItem value="sale">বিক্রি</SelectItem>
-                      <SelectItem value="receive">পেমেন্ট</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Site Filter Select for Customers */}
-                  {isCustomer && (
-                    <Select value={selectedSite} onValueChange={(val: any) => setSelectedSite(val || 'all')}>
-                      <SelectTrigger className="w-44 h-9 bg-white border-slate-200 rounded-xl text-xs font-bold text-slate-800">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <SelectValue placeholder="সব সাইট" />
-                        </div>
+                  {/* 2. Transaction Type Select */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                      <Receipt className="w-3 h-3 text-slate-400" />
+                      লেনদেন ধরণ
+                    </span>
+                    <Select value={activeTab} onValueChange={(val: any) => setActiveTab(val)}>
+                      <SelectTrigger className="w-32 sm:w-36 h-9 bg-white border-slate-200 rounded-xl text-xs font-bold text-slate-800">
+                        <span className="truncate">
+                          {activeTab === 'sale' ? 'বিক্রি' : activeTab === 'receive' ? 'পেমেন্ট' : 'সব লেনদেন'}
+                        </span>
                       </SelectTrigger>
                       <SelectContent className="font-bengali text-xs">
-                        <SelectItem value="all">সব সাইট (একত্রিত)</SelectItem>
-                        {hasUnassignedSiteTx && (
-                          <SelectItem value="__no_site__">📦 সাধারণ খাতা (সাইট ছাড়া)</SelectItem>
-                        )}
-                        {availableSites.map((s, idx) => (
-                          <SelectItem key={idx} value={s}>
-                            📍 {s}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="all">সব লেনদেন</SelectItem>
+                        <SelectItem value="sale">বিক্রি</SelectItem>
+                        <SelectItem value="receive">পেমেন্ট</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* 3. Category Filter Select (রড ও সিমেন্ট ফিল্টার) */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                      <Filter className="w-3 h-3 text-slate-400" />
+                      পণ্য ফিল্টার
+                    </span>
+                    <Select value={categoryFilter} onValueChange={(val: any) => setCategoryFilter(val || 'all')}>
+                      <SelectTrigger className="w-32 sm:w-36 h-9 bg-white border-slate-200 rounded-xl text-xs font-bold text-slate-800">
+                        <span className="truncate">
+                          {categoryFilter === 'rod' ? '🔹 শুধু রড' : categoryFilter === 'cement' ? '🔸 শুধু সিমেন্ট' : '📦 সব পণ্য'}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent className="font-bengali text-xs">
+                        <SelectItem value="all">📦 সব পণ্য</SelectItem>
+                        <SelectItem value="rod">🔹 শুধু রড</SelectItem>
+                        <SelectItem value="cement">🔸 শুধু সিমেন্ট</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* 4. Site Filter Select for Customers */}
+                  {isCustomer && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-blue-500" />
+                        সাইট / প্রজেক্ট
+                      </span>
+                      <Select value={selectedSite} onValueChange={(val: any) => setSelectedSite(val || 'all')}>
+                        <SelectTrigger className="w-40 sm:w-44 h-9 bg-white border-slate-200 rounded-xl text-xs font-bold text-slate-800">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="truncate">
+                              {selectedSite === 'all' 
+                                ? 'সব সাইট (একত্রিত)' 
+                                : selectedSite === '__no_site__' 
+                                  ? '📦 সাধারণ খাতা' 
+                                  : selectedSite}
+                            </span>
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent className="font-bengali text-xs">
+                          <SelectItem value="all">সব সাইট (একত্রিত)</SelectItem>
+                          {hasUnassignedSiteTx && (
+                            <SelectItem value="__no_site__">📦 সাধারণ খাতা (সাইট ছাড়া)</SelectItem>
+                          )}
+                          {availableSites.map((s, idx) => (
+                            <SelectItem key={idx} value={s}>
+                              📍 {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
 
-                  {/* Search Box */}
-                  <div className="relative flex-1 min-w-[200px] max-w-sm">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <Input
-                      value={ledgerSearch}
-                      onChange={e => setLedgerSearch(e.target.value)}
-                      placeholder="বিবরণ খুঁজুন..."
-                      className="pl-9 h-9 text-xs rounded-xl bg-white border-slate-200"
-                    />
+                  {/* 5. Search Box */}
+                  <div className="flex flex-col gap-1 flex-1 min-w-[180px] max-w-xs">
+                    <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                      <Search className="w-3 h-3 text-slate-400" />
+                      অনুসন্ধান
+                    </span>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <Input
+                        value={ledgerSearch}
+                        onChange={e => setLedgerSearch(e.target.value)}
+                        placeholder="বিবরণ খুঁজুন..."
+                        className="pl-8 h-9 text-xs rounded-xl bg-white border-slate-200"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* Right Action Buttons */}
                 <div className="flex items-center gap-2">
-                  {isCustomer && (
-                    <Button 
-                      onClick={() => setIsLedgerImportOpen(true)} 
-                      variant="outline" 
-                      className="h-9 px-3.5 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>লেজার ইমপোর্ট (Excel)</span>
-                    </Button>
-                  )}
                   <Button onClick={handlePrintLedger} className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer">
                     <Printer className="w-3.5 h-3.5 text-white" />
                     <span>লেজার প্রিন্ট</span>
