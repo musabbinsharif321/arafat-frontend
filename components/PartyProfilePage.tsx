@@ -557,7 +557,8 @@ export function generateLedgerEntries(
             debitVal = rodGoods + rodLab;
           } else if (isCementOnly && rawItems.length > 0) {
             const cemGoods = relevantItems.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity || 1) * Number(it.price || 0))), 0);
-            const cemUnload = Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0));
+            const cemUnloadToCustomer = meta.cementUnloadingToCustomerLedger !== false && (tx as any).cementUnloadingToCustomerLedger !== false;
+            const cemUnload = cemUnloadToCustomer ? Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
             debitVal = cemGoods + cemUnload;
           }
 

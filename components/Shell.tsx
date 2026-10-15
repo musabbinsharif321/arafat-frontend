@@ -899,8 +899,12 @@ export function Shell({ children }: { children: ReactNode }) {
         ? `বিক্রয় চালান পরিবহন / গাড়ি ভাড়া (চালান #${item.invoiceId})`
         : `পরিবহন / গাড়ি ভাড়া (চালান #${item.invoiceId})`;
       const existingExpenses = await api.expenses.list({ search: item.invoiceId }).catch(() => []);
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
       const isAlreadyRecorded = Array.isArray(existingExpenses) && existingExpenses.some((e: any) => 
-        e.title?.includes(item.invoiceId) && (e.title?.includes('পরিবহন') || e.title?.includes('গাড়ি ভাড়া') || e.title?.includes('ভাড়া'))
+        e.title?.includes(item.invoiceId) && 
+        Number(e.amount) === Number(payAmount) &&
+        (e.date === todayStr) &&
+        (e.title?.includes('পরিবহন') || e.title?.includes('গাড়ি ভাড়া') || e.title?.includes('ভাড়া'))
       );
       if (!isAlreadyRecorded) {
         await api.expenses.create({
@@ -1066,8 +1070,12 @@ export function Shell({ children }: { children: ReactNode }) {
         : `ক্রয় চালান আনলোডিং চার্জ (চালান #${item.invoiceId})`;
 
       const existingExpenses = await api.expenses.list({ search: item.invoiceId }).catch(() => []);
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
       const isAlreadyRecorded = Array.isArray(existingExpenses) && existingExpenses.some((e: any) => 
-        e.title?.includes(item.invoiceId) && (
+        e.title?.includes(item.invoiceId) && 
+        Number(e.amount) === Number(payAmount) &&
+        (e.date === todayStr) &&
+        (
           item.type === 'loading' 
             ? (e.title?.includes('লোডিং') && (e.title?.includes('সিমেন্ট') || !e.title?.includes('রড')))
             : item.type === 'rod_loading'

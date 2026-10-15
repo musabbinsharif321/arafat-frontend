@@ -431,7 +431,8 @@ export function buildLedgerPrintRows(
             });
           }
         } else if (categoryFilter === 'cement') {
-          const cemUnload = Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0));
+          const cemUnloadToCustomer = meta.cementUnloadingToCustomerLedger !== false && (tx as any).cementUnloadingToCustomerLedger !== false;
+          const cemUnload = cemUnloadToCustomer ? Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
           if (cemUnload > 0) {
             totalAmount += cemUnload;
             rows.push({

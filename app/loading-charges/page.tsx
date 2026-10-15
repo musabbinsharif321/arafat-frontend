@@ -254,7 +254,11 @@ export default function LoadingChargesPage() {
       // 2. Record expense transaction (with duplicate check)
       const targetTitle = `বিক্রয় চালান লোডিং চার্জ (চালান #${selectedEntryForPay.invoiceNo})`;
       const existingExpenses = await api.expenses.list({ search: selectedEntryForPay.invoiceNo }).catch(() => []);
-      const isAlreadyRecorded = Array.isArray(existingExpenses) && existingExpenses.some((e: any) => e.title?.includes(selectedEntryForPay.invoiceNo));
+      const isAlreadyRecorded = Array.isArray(existingExpenses) && existingExpenses.some((e: any) => 
+        e.title?.includes(selectedEntryForPay.invoiceNo) &&
+        Number(e.amount) === Number(payAmount) &&
+        e.date === payDate
+      );
       if (!isAlreadyRecorded) {
         await api.expenses.create({
           title: targetTitle,

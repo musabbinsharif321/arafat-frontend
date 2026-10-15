@@ -106,6 +106,9 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
 
   const cementUnloadingRate = Number(invoice.cementUnloadingRate !== undefined ? invoice.cementUnloadingRate : (meta.cementUnloadingRate || 0));
   const cementUnloadingCost = Number(invoice.cementUnloadingCost !== undefined ? invoice.cementUnloadingCost : (meta.cementUnloadingCost || (cementUnloadingRate > 0 && cementBags > 0 ? cementUnloadingRate * cementBags : 0)));
+  const cementUnloadingToCustomer = (invoice as any).cementUnloadingToCustomerLedger !== undefined 
+    ? Boolean((invoice as any).cementUnloadingToCustomerLedger) 
+    : (meta.cementUnloadingToCustomerLedger !== undefined ? Boolean(meta.cementUnloadingToCustomerLedger) : true);
   const rodLaborCost = Number(invoice.rodLaborCost !== undefined ? invoice.rodLaborCost : (meta.rodLaborCost || (rodLaborRate > 0 && rodRingWeight > 0 ? rodLaborRate * rodRingWeight : 0)));
 
   const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0 || cementUnloadingRate > 0);
@@ -115,8 +118,8 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
     : (rodRingWeight > 0 && cementBags === 0 ? (shippingCost + laborCost) / rodRingWeight : 0);
 
   const cementUnitExtra = hasExplicitRates
-    ? (cementShippingRate + cementUnloadingRate)
-    : (cementBags > 0 && rodRingWeight === 0 ? (shippingCost + cementUnloadingCost) / cementBags : 0);
+    ? (cementShippingRate + (cementUnloadingToCustomer ? cementUnloadingRate : 0))
+    : (cementBags > 0 && rodRingWeight === 0 ? (shippingCost + (cementUnloadingToCustomer ? cementUnloadingCost : 0)) / cementBags : 0);
 
   const paidAmount = Number(invoice.paidAmount || 0);
   const dueAmount = Number(invoice.dueAmount !== undefined ? invoice.dueAmount : Math.max(0, totalAmount - paidAmount));
@@ -642,7 +645,9 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
             {cementUnloadingCost > 0 && (
               <div className="flex justify-between items-center">
                 <div className="flex flex-col">
-                  <span className="text-slate-500">সিমেন্ট আনলোডিং লেবার (কাস্টমার প্রদেয়)</span>
+                  <span className="text-slate-500">
+                    সিমেন্ট আনলোডিং লেবার {cementUnloadingToCustomer ? '(কাস্টমার প্রদেয়)' : '(দোকান প্রদেয় - বিলে যুক্ত নয়)'}
+                  </span>
                   {cementUnloadingRate > 0 && (
                     <span className="text-[10px] text-slate-400 font-normal">
                       {toBengaliDigits(cementBags)} বস্তা @ ৳{toBengaliDigits(cementUnloadingRate)}/বস্তা
@@ -650,7 +655,11 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
                   )}
                 </div>
                 <div className="text-right space-y-0.5">
-                  <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  {cementUnloadingToCustomer ? (
+                    <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  ) : (
+                    <span className="font-mono font-bold text-emerald-700 block text-xs">দোকান বহন করবে</span>
+                  )}
                   <span className={cn(
                     "text-[9px] font-black px-1.5 py-0.2 rounded inline-block",
                     meta.cementUnloadingPaid 
