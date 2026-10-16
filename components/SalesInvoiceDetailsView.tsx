@@ -109,6 +109,9 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
   const cementUnloadingToCustomer = (invoice as any).cementUnloadingToCustomerLedger !== undefined 
     ? Boolean((invoice as any).cementUnloadingToCustomerLedger) 
     : (meta.cementUnloadingToCustomerLedger !== undefined ? Boolean(meta.cementUnloadingToCustomerLedger) : true);
+  const shippingCostToCustomer = (invoice as any).shippingCostToCustomerLedger !== undefined 
+    ? Boolean((invoice as any).shippingCostToCustomerLedger) 
+    : (meta.shippingCostToCustomerLedger !== undefined ? Boolean(meta.shippingCostToCustomerLedger) : (meta.shippingToCustomerLedger !== undefined ? Boolean(meta.shippingToCustomerLedger) : true));
   const rodLaborCost = Number(invoice.rodLaborCost !== undefined ? invoice.rodLaborCost : (meta.rodLaborCost || (rodLaborRate > 0 && rodRingWeight > 0 ? rodLaborRate * rodRingWeight : 0)));
 
   const hasExplicitRates = (rodLaborRate > 0 || rodShippingRate > 0 || cementLaborRate > 0 || cementShippingRate > 0 || cementUnloadingRate > 0);
@@ -596,7 +599,9 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
             {shippingCost > 0 && (
               <div className="flex justify-between items-center">
                 <div className="flex flex-col">
-                  <span className="text-slate-500">পরিবহন ভাড়া / গাড়ি ভাড়া</span>
+                  <span className="text-slate-500">
+                    পরিবহন ভাড়া / গাড়ি ভাড়া {shippingCostToCustomer ? '(কাস্টমার প্রদেয়)' : '(দোকান প্রদেয় - বিলে যুক্ত নয়)'}
+                  </span>
                   {(rodShippingRate > 0 || cementShippingRate > 0) && (
                     <span className="text-[10px] text-slate-400 font-normal">
                       {rodShippingRate > 0 ? `রড: ৳${toBengaliDigits(rodShippingRate)}/কেজি ` : ''}
@@ -605,7 +610,11 @@ export const SalesInvoiceDetailsView: React.FC<SalesInvoiceDetailsViewProps> = (
                   )}
                 </div>
                 <div className="text-right space-y-0.5">
-                  <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  {shippingCostToCustomer ? (
+                    <span className="font-mono font-bold text-slate-900 block">+ ৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
+                  ) : (
+                    <span className="font-mono font-bold text-emerald-700 block text-xs">দোকান বহন করবে</span>
+                  )}
                   <span className={cn(
                     "text-[9px] font-black px-1.5 py-0.2 rounded inline-block",
                     (meta.salesShippingPaid || meta.shippingPaid) 

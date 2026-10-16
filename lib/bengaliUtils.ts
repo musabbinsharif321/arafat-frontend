@@ -125,7 +125,24 @@ export function parseProductDetails(item: {
   if (!categoryName) {
     if (lowerName.includes('সিমেন্ট') || lowerName.includes('cement')) {
       categoryName = 'সিমেন্ট';
-    } else if (lowerName.includes('রড') || lowerName.includes('rod') || lowerName.includes('মিলি') || lowerName.includes('mm')) {
+    } else if (
+      lowerName.includes('রড') || 
+      lowerName.includes('rod') || 
+      lowerName.includes('মিলি') || 
+      lowerName.includes('mm') ||
+      lowerName.includes('মি.লি') ||
+      lowerName.includes('মি.মি') ||
+      lowerName.includes('মিমি') ||
+      lowerName.includes('bsrm') ||
+      lowerName.includes('scrm') ||
+      lowerName.includes('ksrm') ||
+      lowerName.includes('aks') ||
+      lowerName.includes('gph') ||
+      lowerName.includes('বি এস আর এম') ||
+      lowerName.includes('বিএসআরএম') ||
+      lowerName.includes('এসসিআরএম') ||
+      lowerName.includes('কেএসআরএম')
+    ) {
       categoryName = 'রড';
     } else if (lowerName.includes('রিং') || lowerName.includes('ring')) {
       categoryName = 'রিং';
@@ -149,17 +166,29 @@ export function parseProductDetails(item: {
   // 2. Brand (ব্র্যান্ড)
   let brandName = item.brand || '';
   if (!brandName) {
-    const knownBrands = [
-      'BSRM', 'SCRM TMX', 'SCRM', 'KSML', 'HKG', 'DSRM',
-      'Holcim Strong structure', 'Holcim Supercrete Plus', 'Holcim Supercrete', 'Holcim Coastal Guard', 'Holcim Waterprotect', 'King Brand', 'Aman',
-      'KSRM', 'AKS', 'GPH Ispat', 'Anwar Ispat', 'RSRM', 'Baizid', 'Metrocem', 'SSRM',
-      'শাহ সিমেন্ট', 'সেভেন রিংস', 'বসুন্ধরা সিমেন্ট', 'ফ্রেশ সিমেন্ট', 'ক্রাউন সিমেন্ট', 'প্রিমিয়ার সিমেন্ট',
-      'হোলসিম সিমেন্ট', 'আকিজ সিমেন্ট', 'শাহ', 'সেভেন রিং', 'বসুন্ধরা', 'ফ্রেশ', 'ক্রাউন', 'প্রিমিয়ার', 'হোলসিম', 'আকিজ'
-    ];
-    for (const b of knownBrands) {
-      if (name.includes(b)) {
-        brandName = categoryName === 'সিমেন্ট' ? b.replace(/\s*সিমেন্ট$/, '').trim() : b;
-        break;
+    if (name.includes('বি এস আর এম') || name.includes('বিএসআরএম')) {
+      brandName = 'BSRM';
+    } else if (name.includes('এসসিআরএম') || name.includes('এস সি আর এম')) {
+      brandName = 'SCRM';
+    } else if (name.includes('কেএসআরএম') || name.includes('কে এস আর এম')) {
+      brandName = 'KSRM';
+    } else if (name.includes('একেএস') || name.includes('এ কে এস')) {
+      brandName = 'AKS';
+    }
+
+    if (!brandName) {
+      const knownBrands = [
+        'BSRM', 'SCRM TMX', 'SCRM', 'KSML', 'HKG', 'DSRM',
+        'Holcim Strong structure', 'Holcim Supercrete Plus', 'Holcim Supercrete', 'Holcim Coastal Guard', 'Holcim Waterprotect', 'King Brand', 'Aman',
+        'KSRM', 'AKS', 'GPH Ispat', 'Anwar Ispat', 'RSRM', 'Baizid', 'Metrocem', 'SSRM',
+        'শাহ সিমেন্ট', 'সেভেন রিংস', 'বসুন্ধরা সিমেন্ট', 'ফ্রেশ সিমেন্ট', 'ক্রাউন সিমেন্ট', 'প্রিমিয়ার সিমেন্ট',
+        'হোলসিম সিমেন্ট', 'আকিজ সিমেন্ট', 'শাহ', 'সেভেন রিং', 'বসুন্ধরা', 'ফ্রেশ', 'ক্রাউন', 'প্রিমিয়ার', 'হোলসিম', 'আকিজ'
+      ];
+      for (const b of knownBrands) {
+        if (name.includes(b)) {
+          brandName = categoryName === 'সিমেন্ট' ? b.replace(/\s*সিমেন্ট$/, '').trim() : b;
+          break;
+        }
       }
     }
     if (!brandName && categoryName === 'সিমেন্ট') {
@@ -179,11 +208,11 @@ export function parseProductDetails(item: {
     if (detectedCementType) {
       sizeName = detectedCementType;
     } else {
-      const mmMatch = name.match(/([0-9০-৯]+(?:\.[0-9০-৯]+)?\s*(?:মিলি|mm))/i) 
-                   || name.match(/([0-9০-৯]+)\s*(?:মিলি|mm)/i)
-                   || name.match(/\b(8|10|12|16|20|22|25|28|32|৮|১০|১২|১৬|২০|২২|২৫|২৮|৩২)\s*(?:মিলি|mm|রড)?/i);
+      const mmMatch = name.match(/([0-9০-৯]+(?:\.[0-9০-৯]+)?\s*(?:মিলি|মি\.লি|মি\.মি|মিমি|mm))/i) 
+                   || name.match(/([0-9০-৯]+)\s*(?:মিলি|মি\.লি|মি\.মি|মিমি|mm)/i)
+                   || name.match(/\b(8|10|12|16|20|22|25|28|32|৮|১০|১২|১৬|২০|২২|২৫|২৮|৩২)\s*(?:মিলি|মি\.লি|মি\.মি|মিমি|mm|রড)?/i);
       if (mmMatch) {
-        const numPart = (mmMatch[1] || mmMatch[0]).replace(/(?:মিলি|mm|রড)/gi, '').trim();
+        const numPart = (mmMatch[1] || mmMatch[0]).replace(/(?:মিলি|মি\.লি|মি\.মি|মিমি|mm|রড)/gi, '').trim();
         sizeName = numPart ? `${numPart} মিলি` : mmMatch[0];
       } else {
         const ringDashMatch = name.match(/\b([0-9০-৯]+-[0-9০-৯]+)\b/) || name.match(/Pistol\s*ring/i) || name.match(/পিস্তল\s*রিং/i);

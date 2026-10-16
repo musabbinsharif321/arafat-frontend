@@ -134,6 +134,7 @@ interface Invoice {
   cementUnloadingRate?: number;
   cementUnloadingCost?: number;
   cementUnloadingToCustomerLedger?: boolean;
+  shippingCostToCustomerLedger?: boolean;
   engineerRodRate?: number;
   engineerCementRate?: number;
   engineerRodKg?: number;
@@ -357,6 +358,13 @@ function InvoicesContent() {
     }
     return true;
   });
+  const [shippingCostToCustomerLedger, setShippingCostToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_shipping_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
   const [shippingCostInput, setShippingCostInput] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('dokan_sales_shipping_cost');
@@ -412,10 +420,11 @@ function InvoicesContent() {
       localStorage.setItem('dokan_sales_cement_labor_rate', (cementLaborRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_unloading_rate', (cementUnloadingRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_unloading_to_customer', cementUnloadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_shipping_to_customer', shippingCostToCustomerLedger.toString());
       localStorage.setItem('dokan_sales_rod_shipping_rate', (rodShippingRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_shipping_rate', (cementShippingRate || 0).toString());
       localStorage.setItem('dokan_sales_shipping_cost', (shippingCost || 0).toString());
-      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লেবার: ৳${toBengaliDigits(rodLaborRate)}/কেজি, লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা, আনলোডিং: ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা [${cementUnloadingToCustomerLedger ? 'লেজারে যুক্ত' : 'লেজারে বাদ'}]${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)}` : ''})`);
+      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লেবার: ৳${toBengaliDigits(rodLaborRate)}/কেজি, লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা, আনলোডিং: ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা [${cementUnloadingToCustomerLedger ? 'লেজারে যুক্ত' : 'লেজারে বাদ'}]${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)} [${shippingCostToCustomerLedger ? 'লেজারে যুক্ত' : 'লেজারে বাদ'}]` : ''})`);
     }
   };
 
@@ -518,6 +527,7 @@ function InvoicesContent() {
           cementUnloadingRate: meta.cementUnloadingRate !== undefined ? Number(meta.cementUnloadingRate) : undefined,
           cementUnloadingCost: meta.cementUnloadingCost !== undefined ? Number(meta.cementUnloadingCost) : undefined,
           cementUnloadingToCustomerLedger: meta.cementUnloadingToCustomerLedger !== undefined ? Boolean(meta.cementUnloadingToCustomerLedger) : undefined,
+          shippingCostToCustomerLedger: meta.shippingCostToCustomerLedger !== undefined ? Boolean(meta.shippingCostToCustomerLedger) : (meta.shippingToCustomerLedger !== undefined ? Boolean(meta.shippingToCustomerLedger) : undefined),
           engineerRodRate: meta.engineerRodRate !== undefined ? Number(meta.engineerRodRate) : undefined,
           engineerCementRate: meta.engineerCementRate !== undefined ? Number(meta.engineerCementRate) : undefined,
           engineerRodKg: meta.engineerRodKg !== undefined ? Number(meta.engineerRodKg) : undefined,
@@ -735,6 +745,11 @@ function InvoicesContent() {
         if (parsedOrderMeta.cementUnloadingToCustomerLedger !== undefined) {
           setCementUnloadingToCustomerLedger(Boolean(parsedOrderMeta.cementUnloadingToCustomerLedger));
         }
+        if (parsedOrderMeta.shippingCostToCustomerLedger !== undefined) {
+          setShippingCostToCustomerLedger(Boolean(parsedOrderMeta.shippingCostToCustomerLedger));
+        } else if (parsedOrderMeta.shippingToCustomerLedger !== undefined) {
+          setShippingCostToCustomerLedger(Boolean(parsedOrderMeta.shippingToCustomerLedger));
+        }
 
         let cleanNote = raw.notes || '';
         if (cleanNote.trim().startsWith('{')) {
@@ -893,8 +908,21 @@ function InvoicesContent() {
   const rodRingTotalKg = useMemo(() => {
     return round2(cart.reduce((sum, item) => {
       const parsed = parseProductDetails(item);
-      const isRod = parsed.categoryName === 'রড' || item.category === 'রড' || (item.unit || '').includes('কেজি') || (item.unit || '').includes('টন') || (item.name || '').includes('রড') || (item.name || '').includes('মিলি');
-      const isRing = parsed.categoryName === 'রিং' || item.category === 'রিং' || (item.name || '').includes('রিং');
+      const isRod = parsed.categoryName === 'রড' || 
+        item.category === 'রড' || 
+        (item.unit || '').includes('কেজি') || 
+        (item.unit || '').toLowerCase().includes('kg') || 
+        (item.unit || '').includes('টন') || 
+        (item.unit || '').toLowerCase().includes('ton') || 
+        (item.name || '').includes('রড') || 
+        (item.name || '').includes('মিলি') || 
+        (item.name || '').includes('মি.লি') || 
+        (item.name || '').includes('মি.মি') || 
+        (item.name || '').includes('মিমি');
+      const isRing = parsed.categoryName === 'রিং' || 
+        item.category === 'রিং' || 
+        (item.name || '').includes('রিং') || 
+        (item.name || '').toLowerCase().includes('ring');
       if (isRod || isRing) {
         const isTon = (item.unit || '').toLowerCase().includes('ton') || (item.unit || '').includes('টন');
         return sum + (Number(item.quantity) || 0) * (isTon ? 1000 : 1);
@@ -906,7 +934,13 @@ function InvoicesContent() {
   const cementTotalBags = useMemo(() => {
     return round2(cart.reduce((sum, item) => {
       const parsed = parseProductDetails(item);
-      const isCement = parsed.categoryName === 'সিমেন্ট' || item.category === 'সিমেন্ট' || (item.unit || '').includes('বস্তা') || (item.unit || '').includes('ব্যাগ') || (item.name || '').includes('সিমেন্ট');
+      const isCement = parsed.categoryName === 'সিমেন্ট' || 
+        item.category === 'সিমেন্ট' || 
+        (item.unit || '').includes('বস্তা') || 
+        (item.unit || '').includes('ব্যাগ') || 
+        (item.unit || '').toLowerCase().includes('bag') || 
+        (item.name || '').includes('সিমেন্ট') || 
+        (item.name || '').toLowerCase().includes('cement');
       if (isCement) {
         return sum + (Number(item.quantity) || 0);
       }
@@ -914,50 +948,47 @@ function InvoicesContent() {
     }, 0));
   }, [cart]);
 
-  const rodLaborTotal = rodLaborTotalInput !== '' 
-    ? parseInputNumber(rodLaborTotalInput) 
-    : round2(rodRingTotalKg * (rodLaborRate || 0));
+  // Reactive automatic rate * quantity calculations
+  const rodLaborAuto = round2(rodRingTotalKg * (rodLaborRate || 0));
+  const rodLaborTotal = chargeCalcMode === 'rate'
+    ? (rodRingTotalKg > 0
+        ? (rodLaborTotalInput !== '' ? parseInputNumber(rodLaborTotalInput) : rodLaborAuto)
+        : 0)
+    : 0;
   const rodShippingTotal = 0;
-  const cementLaborTotal = cementLaborTotalInput !== '' 
-    ? parseInputNumber(cementLaborTotalInput) 
-    : round2(cementTotalBags * (cementLaborRate || 0));
-  const cementUnloadingTotal = cementUnloadingTotalInput !== '' 
-    ? parseInputNumber(cementUnloadingTotalInput) 
-    : round2(cementTotalBags * (cementUnloadingRate || 0));
+
+  const cementLaborAuto = round2(cementTotalBags * (cementLaborRate || 0));
+  const cementLaborTotal = chargeCalcMode === 'rate'
+    ? (cementTotalBags > 0
+        ? (cementLaborTotalInput !== '' ? parseInputNumber(cementLaborTotalInput) : cementLaborAuto)
+        : 0)
+    : 0;
+
+  const cementUnloadingAuto = round2(cementTotalBags * (cementUnloadingRate || 0));
+  const cementUnloadingTotal = chargeCalcMode === 'rate'
+    ? (cementTotalBags > 0
+        ? (cementUnloadingTotalInput !== '' ? parseInputNumber(cementUnloadingTotalInput) : cementUnloadingAuto)
+        : 0)
+    : 0;
   const cementShippingTotal = 0;
 
-  // Rate change handlers that populate the editable total with initial rate * qty
+  // Rate change handlers: clears manual override so that changing rate immediately recalculates from weight/bags
   const handleRodLaborRateChange = (val: string) => {
     const formatted = formatDecimalInput(val);
     setRodLaborRateInput(formatted);
-    const rate = parseInputNumber(formatted);
-    if (rate > 0 && rodRingTotalKg > 0) {
-      setRodLaborTotalInput(formatDecimalInput(String(round2(rodRingTotalKg * rate))));
-    } else if (!val) {
-      setRodLaborTotalInput('');
-    }
+    setRodLaborTotalInput('');
   };
 
   const handleCementLaborRateChange = (val: string) => {
     const formatted = formatDecimalInput(val);
     setCementLaborRateInput(formatted);
-    const rate = parseInputNumber(formatted);
-    if (rate > 0 && cementTotalBags > 0) {
-      setCementLaborTotalInput(formatDecimalInput(String(round2(cementTotalBags * rate))));
-    } else if (!val) {
-      setCementLaborTotalInput('');
-    }
+    setCementLaborTotalInput('');
   };
 
   const handleCementUnloadingRateChange = (val: string) => {
     const formatted = formatDecimalInput(val);
     setCementUnloadingRateInput(formatted);
-    const rate = parseInputNumber(formatted);
-    if (rate > 0 && cementTotalBags > 0) {
-      setCementUnloadingTotalInput(formatDecimalInput(String(round2(cementTotalBags * rate))));
-    } else if (!val) {
-      setCementUnloadingTotalInput('');
-    }
+    setCementUnloadingTotalInput('');
   };
 
   const handleRodShippingRateChange = (val: string) => {
@@ -982,30 +1013,6 @@ function InvoicesContent() {
     }
   };
 
-  const prevRodKgRef = useRef(rodRingTotalKg);
-  const prevCementBagsRef = useRef(cementTotalBags);
-
-  useEffect(() => {
-    if (prevRodKgRef.current !== rodRingTotalKg) {
-      prevRodKgRef.current = rodRingTotalKg;
-      const rRate = parseInputNumber(rodLaborRateInput);
-      if (rRate > 0 && rodRingTotalKg > 0 && !rodLaborTotalInput) {
-        setRodLaborTotalInput(formatDecimalInput(String(round2(rodRingTotalKg * rRate))));
-      }
-    }
-    if (prevCementBagsRef.current !== cementTotalBags) {
-      prevCementBagsRef.current = cementTotalBags;
-      const cLabRate = parseInputNumber(cementLaborRateInput);
-      if (cLabRate > 0 && cementTotalBags > 0 && !cementLaborTotalInput) {
-        setCementLaborTotalInput(formatDecimalInput(String(round2(cementTotalBags * cLabRate))));
-      }
-      const cUnloadRate = parseInputNumber(cementUnloadingRateInput);
-      if (cUnloadRate > 0 && cementTotalBags > 0 && !cementUnloadingTotalInput) {
-        setCementUnloadingTotalInput(formatDecimalInput(String(round2(cementTotalBags * cUnloadRate))));
-      }
-    }
-  }, [rodRingTotalKg, cementTotalBags, rodLaborRateInput, cementLaborRateInput, cementUnloadingRateInput, rodLaborTotalInput, cementLaborTotalInput, cementUnloadingTotalInput]);
-
   // Customer pays Rod labor + Cement Unloading labor (if toggled on) or manual labor; Cement loading is shop loading charge paid by dokan
   const laborCost = chargeCalcMode === 'rate' 
     ? round2(rodLaborTotal + (cementUnloadingToCustomerLedger ? cementUnloadingTotal : 0)) 
@@ -1023,7 +1030,8 @@ function InvoicesContent() {
     ? round2((cartSubtotal * (discountPercent || 0)) / 100) 
     : round2(discountFlat || 0);
   const cartTotalDiscount = round2(computedDiscount + cart.reduce((a, i) => a + ((i.discount || 0) * i.quantity), 0));
-  const cartTotalAmount = round2(Math.max(0, cartSubtotal - cartTotalDiscount + (shippingCost || 0) + (laborCost || 0)));
+  const effectiveShippingCost = shippingCostToCustomerLedger ? (shippingCost || 0) : 0;
+  const cartTotalAmount = round2(Math.max(0, cartSubtotal - cartTotalDiscount + effectiveShippingCost + (laborCost || 0)));
 
   // Total Paid considering Split payment or single payment
   const isSplitPayment = invoicePaymentMethod === 'Split';
@@ -1101,6 +1109,8 @@ function InvoicesContent() {
     setCementUnloadingTotalInput('');
     const defCemUnloadToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_cement_unloading_to_customer') : null;
     setCementUnloadingToCustomerLedger(defCemUnloadToCust !== null ? defCemUnloadToCust === 'true' : true);
+    const defShipToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_shipping_to_customer') : null;
+    setShippingCostToCustomerLedger(defShipToCust !== null ? defShipToCust === 'true' : true);
     setRodShippingRateInput(defRodShip ? formatDecimalInput(defRodShip) : '');
     setCementShippingRateInput(defCemShip ? formatDecimalInput(defCemShip) : '');
     setShippingCostInput(defShip ? formatDecimalInput(defShip) : '');
@@ -1251,6 +1261,13 @@ function InvoicesContent() {
     } else {
       setCementUnloadingToCustomerLedger(true);
     }
+    if (invAny.shippingCostToCustomerLedger !== undefined) {
+      setShippingCostToCustomerLedger(Boolean(invAny.shippingCostToCustomerLedger));
+    } else if (invAny.shippingToCustomerLedger !== undefined) {
+      setShippingCostToCustomerLedger(Boolean(invAny.shippingToCustomerLedger));
+    } else {
+      setShippingCostToCustomerLedger(true);
+    }
     if (invAny.rodShippingRate !== undefined) setRodShippingRateInput(formatDecimalInput(String(invAny.rodShippingRate || '')));
     if (invAny.cementShippingRate !== undefined) setCementShippingRateInput(formatDecimalInput(String(invAny.cementShippingRate || '')));
     if (inv.shippingCost !== undefined) setShippingCostInput(formatDecimalInput(String(inv.shippingCost || '')));
@@ -1381,6 +1398,7 @@ function InvoicesContent() {
         cementUnloadingRate: Number(cementUnloadingRate || 0),
         cementUnloadingCost: Number(cementUnloadingTotal || 0),
         cementUnloadingToCustomerLedger: Boolean(cementUnloadingToCustomerLedger),
+        shippingCostToCustomerLedger: Boolean(shippingCostToCustomerLedger),
         cementUnloadingPaid: editingInvoiceMeta ? Boolean(editingInvoiceMeta.cementUnloadingPaid) : false,
         cementUnloadingPaidAmount: editingInvoiceMeta ? Number(editingInvoiceMeta.cementUnloadingPaidAmount || 0) : 0,
         cementUnloadingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.cementUnloadingPaidAt || '') : '',
@@ -2793,44 +2811,23 @@ function InvoicesContent() {
                         </div>
                       </div>
 
-                      {/* Calculation Mode Toggle */}
+                      {/* Extra Charges Header */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 p-2.5 rounded-md border border-slate-200 text-xs gap-2">
-                        <div className="flex items-center gap-3">
-                          <label className="flex items-center gap-1.5 cursor-pointer font-bold text-slate-700">
-                            <input 
-                              type="radio" 
-                              name="chargeCalcMode" 
-                              checked={chargeCalcMode === 'rate'}
-                              onChange={() => setChargeCalcMode('rate')}
-                              className="accent-emerald-600"
-                            />
-                            <span>প্রতি ইউনিট রেট অনুযায়ী (রড কেজি ও সিমেন্ট বস্তা)</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 cursor-pointer font-bold text-slate-700">
-                            <input 
-                              type="radio" 
-                              name="chargeCalcMode" 
-                              checked={chargeCalcMode === 'manual'}
-                              onChange={() => setChargeCalcMode('manual')}
-                              className="accent-emerald-600"
-                            />
-                            <span>সরাসরি মোট টাকা (ম্যানুয়াল)</span>
-                          </label>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                          <span className="font-bold text-slate-800 font-bengali">প্রতি ইউনিট রেট অনুযায়ী (রড কেজি ও সিমেন্ট বস্তা)</span>
                         </div>
-                        {chargeCalcMode === 'rate' && (
-                          <button
-                            type="button"
-                            onClick={handleSaveDefaultCharges}
-                            className="text-[10px] font-black text-amber-700 bg-amber-100 hover:bg-amber-200 px-2 py-1 rounded-sm border border-amber-300 transition-colors cursor-pointer font-bengali self-start sm:self-auto"
-                            title="বর্তমানে দেওয়া রেটগুলো সব সময় ডিফল্ট হিসেবে রাখতে এখানে ক্লিক করুন"
-                          >
-                            📌 ডিফল্ট রেট সেভ করুন
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={handleSaveDefaultCharges}
+                          className="text-[10px] font-black text-amber-700 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-sm border border-amber-300 transition-colors cursor-pointer font-bengali self-start sm:self-auto"
+                          title="বর্তমানে দেওয়া রেটগুলো সব সময় ডিফল্ট হিসেবে রাখতে এখানে ক্লিক করুন"
+                        >
+                          📌 ডিফল্ট রেট সেভ করুন
+                        </button>
                       </div>
 
-                      {chargeCalcMode === 'rate' ? (
-                        <div className="space-y-3 font-bengali">
+                      <div className="space-y-3 font-bengali">
                           {/* Rod & Ring Rate Box */}
                           {(rodRingTotalKg > 0 || (rodRingTotalKg === 0 && cementTotalBags === 0)) && (
                             <div className="bg-sky-50/60 border border-sky-200 rounded-md p-3 space-y-2">
@@ -3008,15 +3005,61 @@ function InvoicesContent() {
                           )}
 
                           {/* Dedicated Vehicle Fare Box */}
-                          <div className="bg-emerald-50/50 border border-emerald-200 rounded-md p-3 space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <Label className="text-[11px] font-bold text-emerald-950 flex items-center gap-1.5">
-                                🚚 পরিবহন / গাড়ি ভাড়া
-                              </Label>
-                              <span className="text-[10px] text-slate-500">
-                                (রেট দিলে হিসাব হবে অথবা সরাসরি মোট ভাড়া লিখুন)
-                              </span>
+                          <div className={cn(
+                            "border rounded-md p-3 space-y-2 transition-all",
+                            shippingCostToCustomerLedger ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50/80 border-slate-200"
+                          )}>
+                            <div className="flex items-center justify-between text-xs gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <Label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                  🚚 পরিবহন / গাড়ি ভাড়া
+                                </Label>
+                                <span className="hidden sm:inline text-[10px] text-slate-500">
+                                  (রেট দিলে হিসাব হবে অথবা সরাসরি মোট ভাড়া লিখুন)
+                                </span>
+                              </div>
+                              {/* Toggle Button for Customer Ledger */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={shippingCostToCustomerLedger}
+                                  onClick={() => setShippingCostToCustomerLedger(!shippingCostToCustomerLedger)}
+                                  className={cn(
+                                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-emerald-500",
+                                    shippingCostToCustomerLedger ? "bg-emerald-600" : "bg-slate-300"
+                                  )}
+                                  title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                >
+                                  <span
+                                    className={cn(
+                                      "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                      shippingCostToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                    )}
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setShippingCostToCustomerLedger(!shippingCostToCustomerLedger)}
+                                  className={cn(
+                                    "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                    shippingCostToCustomerLedger 
+                                      ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                                      : "bg-slate-200 text-slate-600 border-slate-300"
+                                  )}
+                                >
+                                  {shippingCostToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'লেজারে যুক্ত নয়'}
+                                </button>
+                              </div>
                             </div>
+                            <span className={cn(
+                              "text-[10px] font-medium block",
+                              shippingCostToCustomerLedger ? "text-emerald-800" : "text-amber-800"
+                            )}>
+                              {shippingCostToCustomerLedger 
+                                ? '💡 গাড়ি ভাড়া কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                : '💡 গাড়ি ভাড়া কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                            </span>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               {rodRingTotalKg > 0 && (
                                 <div className="space-y-0.5">
@@ -3050,7 +3093,7 @@ function InvoicesContent() {
                                 ((rodRingTotalKg > 0 && cementTotalBags === 0) || (cementTotalBags > 0 && rodRingTotalKg === 0)) && "sm:col-span-2"
                               )}>
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[10px] text-emerald-950 font-bold">মোট গাড়ি ভাড়া (৳)</span>
+                                  <span className="text-[10px] text-slate-800 font-bold">মোট গাড়ি ভাড়া (৳)</span>
                                   <span className="text-[9px] text-emerald-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
                                 </div>
                                 <Input 
@@ -3059,39 +3102,15 @@ function InvoicesContent() {
                                   value={shippingCostInput}
                                   onChange={e => setShippingCostInput(formatDecimalInput(e.target.value))}
                                   placeholder="০"
-                                  className="rounded-md h-9 bg-white border-emerald-300 text-xs font-bold text-slate-800 font-bengali"
+                                  className={cn(
+                                    "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                    shippingCostToCustomerLedger ? "border-emerald-300 text-slate-800" : "border-slate-300 text-slate-700"
+                                  )}
                                 />
                               </div>
                             </div>
                           </div>
                         </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3 font-bengali">
-                          <div className="space-y-1">
-                            <Label className="text-[11px] font-bold text-slate-600">লেবার খরচ (৳)</Label>
-                            <Input 
-                              type="text"
-                              inputMode="decimal"
-                              value={manualLaborCostInput}
-                              onChange={e => setManualLaborCostInput(formatDecimalInput(e.target.value))}
-                              placeholder="০"
-                              className="rounded-md h-10 bg-slate-50 border-slate-200 text-xs font-bold text-amber-600 font-bengali"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label className="text-[11px] font-bold text-slate-600">গাড়ি ভাড়া (৳)</Label>
-                            <Input 
-                              type="text"
-                              inputMode="decimal"
-                              value={shippingCostInput}
-                              onChange={e => setShippingCostInput(formatDecimalInput(e.target.value))}
-                              placeholder="০"
-                              className="rounded-md h-10 bg-slate-50 border-slate-200 text-xs font-bold font-bengali"
-                            />
-                          </div>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
 
@@ -3453,10 +3472,17 @@ function InvoicesContent() {
                         )}
 
                         {shippingCost > 0 && (
-                          <div className="flex justify-between text-blue-600">
-                            <span>গাড়ি ভাড়া</span>
-                            <span className="font-bold">+ ৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN'))}</span>
-                          </div>
+                          shippingCostToCustomerLedger ? (
+                            <div className="flex justify-between text-blue-600">
+                              <span>গাড়ি ভাড়া</span>
+                              <span className="font-bold">+ ৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN'))}</span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-center bg-blue-50/60 p-1.5 rounded border border-blue-200 text-[11px] text-blue-900 font-bold">
+                              <span>গাড়ি ভাড়া (দোকান প্রদেয় / লেজারে বাদ):</span>
+                              <span className="font-black font-mono">৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN'))} (বিলে যুক্ত নয়)</span>
+                            </div>
+                          )
                         )}
 
                         {rodLaborTotal > 0 && (

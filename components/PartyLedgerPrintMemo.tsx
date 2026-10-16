@@ -430,6 +430,21 @@ export function buildLedgerPrintRows(
               rawAmount: rodLab,
             });
           }
+          const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+          const rodShip = shipToCustomer ? Number(meta.rodShippingCost || 0) : 0;
+          if (rodShip > 0) {
+            totalAmount += rodShip;
+            rows.push({
+              date: txDateStr,
+              description: 'গাড়ি ভাড়া (রড)',
+              quantity: '১.০',
+              rate: formatLedgerNum(rodShip),
+              deposit: '-',
+              amount: formatLedgerNum(rodShip),
+              rawDeposit: 0,
+              rawAmount: rodShip,
+            });
+          }
         } else if (categoryFilter === 'cement') {
           const cemUnloadToCustomer = meta.cementUnloadingToCustomerLedger !== false && (tx as any).cementUnloadingToCustomerLedger !== false;
           const cemUnload = cemUnloadToCustomer ? Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
@@ -444,6 +459,21 @@ export function buildLedgerPrintRows(
               amount: formatLedgerNum(cemUnload),
               rawDeposit: 0,
               rawAmount: cemUnload,
+            });
+          }
+          const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+          const cemShip = shipToCustomer ? Number(meta.cementShippingCost || 0) : 0;
+          if (cemShip > 0) {
+            totalAmount += cemShip;
+            rows.push({
+              date: txDateStr,
+              description: 'গাড়ি ভাড়া (সিমেন্ট)',
+              quantity: '১.০',
+              rate: formatLedgerNum(cemShip),
+              deposit: '-',
+              amount: formatLedgerNum(cemShip),
+              rawDeposit: 0,
+              rawAmount: cemShip,
             });
           }
         }

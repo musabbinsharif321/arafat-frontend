@@ -200,7 +200,11 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
   const effectivePreviousBalance = Number(invoice.previousBalance !== undefined ? invoice.previousBalance : (invoice.previousDue !== undefined ? invoice.previousDue : (meta.previousBalance || meta.previousDue || 0)));
   const effectivePaymentMethodName = invoice.paymentMethodName || meta.paymentMethodName || invoice.paymentMethod || 'Cash';
   const effectiveDiscount = Number(invoice.discount !== undefined ? invoice.discount : (meta.discount || 0));
-  const effectiveShippingCost = Number(invoice.transportCost || invoice.shippingCost || meta.shippingCost || meta.transportCost || 0);
+  const rawShippingCost = Number(invoice.transportCost || invoice.shippingCost || meta.shippingCost || meta.transportCost || 0);
+  const shippingCostToCustomer = (invoice as any).shippingCostToCustomerLedger !== undefined 
+    ? Boolean((invoice as any).shippingCostToCustomerLedger) 
+    : (meta.shippingCostToCustomerLedger !== undefined ? Boolean(meta.shippingCostToCustomerLedger) : (meta.shippingToCustomerLedger !== undefined ? Boolean(meta.shippingToCustomerLedger) : true));
+  const effectiveShippingCost = shippingCostToCustomer ? rawShippingCost : 0;
   const effectiveLaborCost = Number(invoice.laborCost || meta.laborCost || 0);
 
   const items = invoice.items || [];
@@ -843,19 +847,31 @@ export const InvoiceMemo: React.FC<InvoiceMemoProps> = ({
                 </div>
               )}
 
-              {effectiveShippingCost > 0 && (
-                <div className="flex justify-between items-center p-1.5 px-2">
-                  <div className="flex flex-col text-left">
-                    <span className="text-slate-800 font-medium">পরিবহন ভাড়া / গাড়ি ভাড়া</span>
-                    {(rodShippingRate > 0 || cementShippingRate > 0) && (
-                      <span className="text-[9px] text-slate-500 font-normal">
-                        {rodShippingRate > 0 ? `রড: ৳${toBengaliDigits(rodShippingRate)}/কেজি ` : ''}
-                        {cementShippingRate > 0 ? `সিমেন্ট: ৳${toBengaliDigits(cementShippingRate)}/বস্তা` : ''}
-                      </span>
-                    )}
+              {rawShippingCost > 0 && (
+                shippingCostToCustomer ? (
+                  <div className="flex justify-between items-center p-1.5 px-2">
+                    <div className="flex flex-col text-left">
+                      <span className="text-slate-800 font-medium">পরিবহন ভাড়া / গাড়ি ভাড়া</span>
+                      {(rodShippingRate > 0 || cementShippingRate > 0) && (
+                        <span className="text-[9px] text-slate-500 font-normal">
+                          {rodShippingRate > 0 ? `রড: ৳${toBengaliDigits(rodShippingRate)}/কেজি ` : ''}
+                          {cementShippingRate > 0 ? `সিমেন্ট: ৳${toBengaliDigits(cementShippingRate)}/বস্তা` : ''}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono">+ ৳ {toBengaliDigits(rawShippingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
                   </div>
-                  <span className="font-mono">+ ৳ {toBengaliDigits(effectiveShippingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))}</span>
-                </div>
+                ) : (
+                  <div className="flex justify-between items-center p-1.5 px-2 bg-blue-50/40 text-[11px]">
+                    <div className="flex flex-col text-left">
+                      <span className="text-blue-900 font-medium">পরিবহন ভাড়া / গাড়ি ভাড়া (দোকান প্রদেয়)</span>
+                      <span className="text-[9px] text-slate-500 font-normal">
+                        মোট ৳{toBengaliDigits(rawShippingCost.toLocaleString('en-IN', { minimumFractionDigits: 2 }))} (গ্রাহকের বিলে যুক্ত নয়)
+                      </span>
+                    </div>
+                    <span className="font-mono text-blue-700 font-bold">দোকান বহন করবে</span>
+                  </div>
+                )
               )}
 
               {effectiveDiscount > 0 && (

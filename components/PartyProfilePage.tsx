@@ -554,12 +554,16 @@ export function generateLedgerEntries(
           if (isRodOnly && rawItems.length > 0) {
             const rodGoods = relevantItems.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity || 1) * Number(it.price || 0))), 0);
             const rodLab = Number(meta.rodLaborCost || (meta.rodLaborRate ? meta.rodLaborRate * Number(meta.rodRingTotalKg || 0) : 0));
-            debitVal = rodGoods + rodLab;
+            const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+            const rodShip = shipToCustomer ? Number(meta.rodShippingCost || 0) : 0;
+            debitVal = rodGoods + rodLab + rodShip;
           } else if (isCementOnly && rawItems.length > 0) {
             const cemGoods = relevantItems.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity || 1) * Number(it.price || 0))), 0);
             const cemUnloadToCustomer = meta.cementUnloadingToCustomerLedger !== false && (tx as any).cementUnloadingToCustomerLedger !== false;
             const cemUnload = cemUnloadToCustomer ? Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
-            debitVal = cemGoods + cemUnload;
+            const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+            const cemShip = shipToCustomer ? Number(meta.cementShippingCost || 0) : 0;
+            debitVal = cemGoods + cemUnload + cemShip;
           }
 
           cumulativeBalance += debitVal;
