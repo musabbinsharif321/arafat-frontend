@@ -38,6 +38,7 @@ import { useAuth } from '@/lib/authContext';
 import { PartyLedgerPrintMemo } from '@/components/PartyLedgerPrintMemo';
 import { DataImportModal } from '@/components/DataImportModal';
 import { cleanLegacyBengaliText } from '@/lib/bengaliUtils';
+import { computeSiteAdvanceAdjustments } from '@/lib/ledgerUtils';
 
 export const toBnDigits = (val: string | number | undefined | null): string => {
   if (val === undefined || val === null || val === '') return '';
@@ -79,6 +80,8 @@ export interface PartyProfile {
   updatedAt?: string;
   totalDue?: number;
   totalSales?: number;
+  advanceBalance?: number;
+  advance_balance?: number;
   sites?: Array<{ id: number | string; name: string; address?: string; contact_person?: string; contact_phone?: string }>;
 }
 
@@ -793,7 +796,9 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
         createdAt: (p as any).created_at || '',
         updatedAt: (p as any).updated_at || '',
         totalDue: Number(p.total_due || 0),
-        totalSales: Number(p.total_sales || 0)
+        totalSales: Number(p.total_sales || 0),
+        advanceBalance: Number((p as any).advance_balance || 0),
+        advance_balance: Number((p as any).advance_balance || 0)
       });
 
       let rawTxList: any[] = [];
@@ -944,16 +949,49 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
     return transactions.some(t => !t.siteName || t.siteName.trim() === '');
   }, [transactions]);
 
+  // Automatic Advance Deductions for customer sites
+  const siteAdvanceAdjustments = useMemo(() => {
+    if (!isCustomer || !party) return [];
+    return computeSiteAdvanceAdjustments(party, transactions);
+  }, [isCustomer, party, transactions]);
+
+  const selectedSiteAdjustments = useMemo(() => {
+    if (selectedSite === 'all' || selectedSite === '__no_site__') return [];
+    return siteAdvanceAdjustments.filter(adj => adj.siteName.toLowerCase() === selectedSite.trim().toLowerCase());
+  }, [siteAdvanceAdjustments, selectedSite]);
+
   const siteTransactions = useMemo(() => {
     if (selectedSite === 'all') return transactions;
     if (selectedSite === '__no_site__') {
       return transactions.filter(t => !t.siteName || t.siteName.trim() === '');
     }
-    return transactions.filter(t => {
+    const directSiteTx = transactions.filter(t => {
       const sName = (t.siteName || '').trim().toLowerCase();
       return sName === selectedSite.trim().toLowerCase();
     });
-  }, [transactions, selectedSite]);
+
+    const adjustmentTx: TransactionDoc[] = selectedSiteAdjustments.map(adj => ({
+      id: adj.id,
+      orderId: adj.saleId,
+      invoiceNo: adj.invoiceNo,
+      customerName: party?.name,
+      customerId: party?.id,
+      totalAmount: 0,
+      paidAmount: adj.adjustedAmount,
+      dueAmount: 0,
+      paymentMethod: 'অগ্রিম সমন্বয়',
+      note: adj.description,
+      notes: adj.description,
+      status: 'completed',
+      transactionType: 'payment_in',
+      siteName: adj.siteName,
+      createdAt: typeof adj.date === 'string' ? adj.date : new Date(adj.date).toISOString()
+    }));
+
+    return [...directSiteTx, ...adjustmentTx].sort((a, b) => {
+      return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+    });
+  }, [transactions, selectedSite, selectedSiteAdjustments, party]);
 
   const siteTotalBill = useMemo(() => {
     return siteTransactions.filter(t => t.transactionType === 'sale' || !t.transactionType).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
@@ -962,6 +1000,10 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
   const siteTotalPaid = useMemo(() => {
     return siteTransactions.reduce((sum, t) => sum + (t.paidAmount || 0), 0);
   }, [siteTransactions]);
+
+  const siteTotalAdjusted = useMemo(() => {
+    return selectedSiteAdjustments.reduce((sum, a) => sum + a.adjustedAmount, 0);
+  }, [selectedSiteAdjustments]);
 
   const siteTotalDue = useMemo(() => {
     if (selectedSite === '__no_site__') {
@@ -1760,7 +1802,10 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
                         const sTx = transactions.filter(t => (t.siteName || '').trim().toLowerCase() === siteName.trim().toLowerCase());
                         const sBill = sTx.filter(t => t.transactionType === 'sale' || !t.transactionType).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
                         const sPaid = sTx.reduce((sum, t) => sum + (t.paidAmount || 0), 0);
-                        const sDue = Math.max(0, sBill - sPaid);
+                        const sAdjusted = siteAdvanceAdjustments
+                          .filter(a => a.siteName.toLowerCase() === siteName.trim().toLowerCase())
+                          .reduce((sum, a) => sum + a.adjustedAmount, 0);
+                        const sDue = Math.max(0, sBill - sPaid - sAdjusted);
                         return (
                           <div 
                             key={idx}
@@ -1785,9 +1830,18 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
                               </div>
                               <div>
                                 <span className="text-slate-500 block text-[10px]">সাইটের বকেয়া:</span>
-                                <span className="font-bold text-rose-600">৳ {toBnDigits(sDue.toLocaleString('en-IN'))}</span>
+                                <span className={cn("font-bold", sDue > 0 ? "text-rose-600" : "text-emerald-600")}>
+                                  {sDue > 0 ? `৳ ${toBnDigits(sDue.toLocaleString('en-IN'))}` : 'পরিশোধিত'}
+                                </span>
                               </div>
                             </div>
+
+                            {sAdjusted > 0 && (
+                              <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md flex items-center justify-between">
+                                <span className="text-emerald-700">অগ্রিম থেকে সমন্বয়:</span>
+                                <span>৳ {toBnDigits(sAdjusted.toLocaleString('en-IN'))}</span>
+                              </div>
+                            )}
 
                             <div className="pt-1 flex items-center gap-1.5">
                               <Button
@@ -2008,9 +2062,19 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
                     <span className="text-slate-700 font-bold">
                       পরিশোধ: <span className="text-emerald-700">৳ {toBnDigits(siteTotalPaid.toLocaleString('en-IN'))}</span>
                     </span>
+                    {siteTotalAdjusted > 0 && (
+                      <>
+                        <span className="text-slate-400">|</span>
+                        <span className="text-blue-700 font-bold bg-blue-100/80 px-2 py-0.5 rounded text-[11px]">
+                          অগ্রিম সমন্বয়: <span className="font-black text-blue-900">৳ {toBnDigits(siteTotalAdjusted.toLocaleString('en-IN'))}</span>
+                        </span>
+                      </>
+                    )}
                     <span className="text-slate-400">|</span>
                     <span className="text-slate-700 font-bold">
-                      অবশিষ্ট জের: <span className="text-rose-600">৳ {toBnDigits(siteTotalDue.toLocaleString('en-IN'))}</span>
+                      অবশিষ্ট জের: <span className={siteTotalDue <= 0 ? "text-emerald-600 font-black" : "text-rose-600 font-black"}>
+                        {siteTotalDue <= 0 ? 'পরিশোধিত (০.০০)' : `৳ ${toBnDigits(siteTotalDue.toLocaleString('en-IN'))}`}
+                      </span>
                     </span>
                   </div>
                   <Button 

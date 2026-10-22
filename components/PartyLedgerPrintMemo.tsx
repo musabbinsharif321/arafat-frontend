@@ -6,6 +6,7 @@ import { numberToBengaliWords, cleanLegacyBengaliText } from '@/lib/bengaliUtils
 import { DEVELOPER_LOGO_BASE64 } from '@/lib/developerLogo';
 import { format } from 'date-fns';
 import { bn } from 'date-fns/locale';
+import { computeSiteAdvanceAdjustments } from '@/lib/ledgerUtils';
 
 export interface PrintLedgerRow {
   date: string;
@@ -88,7 +89,29 @@ export function buildLedgerPrintRows(
   // Separate opening / previous balance from transactions prior to startDate (only for combined/all sites or general account)
   let priorBalance = (categoryFilter !== 'all' || (isSiteFiltered && selectedSite !== '__no_site__')) ? 0 : Number(party?.openingBalance || 0);
 
-  const sorted = [...transactions].sort((a, b) => {
+  // Automatic Advance Deductions for customer sites
+  const siteAdjustments = (isCustomer && isSiteFiltered && selectedSite !== '__no_site__')
+    ? computeSiteAdvanceAdjustments(party, transactions).filter(adj => adj.siteName.toLowerCase() === selectedSite!.trim().toLowerCase())
+    : [];
+
+  const adjustmentTxList = siteAdjustments.map(adj => ({
+    id: adj.id,
+    orderId: adj.saleId,
+    invoiceNo: adj.invoiceNo,
+    totalAmount: 0,
+    paidAmount: adj.adjustedAmount,
+    paymentMethod: 'অগ্রিম সমন্বয়',
+    notes: adj.description,
+    description: adj.description,
+    status: 'completed',
+    transactionType: 'payment_in',
+    siteName: adj.siteName,
+    createdAt: typeof adj.date === 'string' ? adj.date : new Date(adj.date).toISOString()
+  }));
+
+  const combinedTransactions = [...transactions, ...adjustmentTxList];
+
+  const sorted = combinedTransactions.sort((a, b) => {
     const da = new Date(a.createdAt || 0);
     const db = new Date(b.createdAt || 0);
     return da.getTime() - db.getTime();
@@ -234,9 +257,16 @@ export function buildLedgerPrintRows(
       const paid = Number(tx.paidAmount || tx.totalAmount || 0);
       if (paid > 0) {
         totalDeposit += paid;
+        let payDesc = isEngineer ? 'কমিশন পরিশোধ' : 'জমা';
+        if (tx.paymentMethod === 'অগ্রিম সমন্বয়' || (tx.description && tx.description.includes('অগ্রিম'))) {
+          payDesc = tx.description;
+        } else if (tx.notes && typeof tx.notes === 'string' && !tx.notes.trim().startsWith('{') && tx.notes.trim() !== '') {
+          payDesc = `জমা (${tx.notes.trim()})`;
+        }
+
         rows.push({
           date: txDateStr,
-          description: isEngineer ? 'কমিশন পরিশোধ' : 'জমা',
+          description: payDesc,
           quantity: '-',
           rate: '-',
           deposit: formatLedgerNum(paid),
@@ -788,6 +818,11 @@ export const PartyLedgerPrintMemo: React.FC<PartyLedgerPrintMemoProps> = ({
                 <span className="font-black whitespace-nowrap">কথায় ঃ</span>
                 <span className="font-bold text-black">{numberToBengaliWords(netBalance).replace(' টাকা মাত্র', '')} টাকা মাত্র।</span>
               </div>
+              {hasSelectedSite && selectedSite !== '__no_site__' && Number((party as any)?.advance_balance || (party as any)?.advanceBalance || 0) > 0 && (
+                <div className="text-[11px] font-bold text-slate-800 mt-1.5 border-t border-dashed border-slate-300 pt-1">
+                  * বিঃ দ্রঃ— সম্মানিত গ্রাহকের মূল একাউন্টে এখনো ৳{toBnDigits(Number((party as any)?.advance_balance || (party as any)?.advanceBalance || 0).toLocaleString('en-IN'))} অগ্রিম জমা বিদ্যমান রয়েছে।
+                </div>
+              )}
             </td>
             <td className="border border-black py-1 px-2 text-center font-black">মোট</td>
             <td className="border border-black py-1 px-2 text-right font-black">{formatLedgerNum(totalAmount, toBnDigits('০.০'))}</td>
