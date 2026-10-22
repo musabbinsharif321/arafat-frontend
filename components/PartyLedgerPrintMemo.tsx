@@ -416,18 +416,34 @@ export function buildLedgerPrintRows(
         });
 
         if (categoryFilter === 'rod') {
-          const rodLab = Number(meta.rodLaborCost || (meta.rodLaborRate ? meta.rodLaborRate * Number(meta.rodRingTotalKg || 0) : 0));
+          const rodLoadToCustomer = meta.rodLoadingToCustomerLedger !== false && (tx as any).rodLoadingToCustomerLedger !== false;
+          const rodLab = rodLoadToCustomer ? Number(meta.rodLaborCost || (meta.rodLaborRate ? meta.rodLaborRate * Number(meta.rodRingTotalKg || 0) : 0)) : 0;
           if (rodLab > 0) {
             totalAmount += rodLab;
             rows.push({
               date: txDateStr,
-              description: 'লেবার খরচ (রড)',
+              description: 'লেবার খরচ (রড লোডিং)',
               quantity: '১.০',
               rate: formatLedgerNum(rodLab),
               deposit: '-',
               amount: formatLedgerNum(rodLab),
               rawDeposit: 0,
               rawAmount: rodLab,
+            });
+          }
+          const rodUnloadToCustomer = meta.rodUnloadingToCustomerLedger !== false && (tx as any).rodUnloadingToCustomerLedger !== false;
+          const rodUnload = rodUnloadToCustomer ? Number(meta.rodUnloadingCost || (meta.rodUnloadingRate ? meta.rodUnloadingRate * Number(meta.rodRingTotalKg || 0) : 0)) : 0;
+          if (rodUnload > 0) {
+            totalAmount += rodUnload;
+            rows.push({
+              date: txDateStr,
+              description: 'রড আনলোডিং লেবার',
+              quantity: '১.০',
+              rate: formatLedgerNum(rodUnload),
+              deposit: '-',
+              amount: formatLedgerNum(rodUnload),
+              rawDeposit: 0,
+              rawAmount: rodUnload,
             });
           }
           const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
@@ -446,6 +462,21 @@ export function buildLedgerPrintRows(
             });
           }
         } else if (categoryFilter === 'cement') {
+          const cemLoadToCustomer = Boolean(meta.cementLoadingToCustomerLedger || (tx as any).cementLoadingToCustomerLedger);
+          const cemLoad = cemLoadToCustomer ? Number(meta.cementLaborCost || (meta.cementLaborRate ? meta.cementLaborRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
+          if (cemLoad > 0) {
+            totalAmount += cemLoad;
+            rows.push({
+              date: txDateStr,
+              description: 'সিমেন্ট লোডিং লেবার',
+              quantity: '১.০',
+              rate: formatLedgerNum(cemLoad),
+              deposit: '-',
+              amount: formatLedgerNum(cemLoad),
+              rawDeposit: 0,
+              rawAmount: cemLoad,
+            });
+          }
           const cemUnloadToCustomer = meta.cementUnloadingToCustomerLedger !== false && (tx as any).cementUnloadingToCustomerLedger !== false;
           const cemUnload = cemUnloadToCustomer ? Number(meta.cementUnloadingCost || (meta.cementUnloadingRate ? meta.cementUnloadingRate * Number(meta.cementTotalBags || 0) : 0)) : 0;
           if (cemUnload > 0) {

@@ -126,11 +126,16 @@ interface Invoice {
   rodLaborCost?: number;
   rodShippingCost?: number;
   rodRingTotalKg?: number;
+  rodLoadingToCustomerLedger?: boolean;
+  rodUnloadingRate?: number;
+  rodUnloadingCost?: number;
+  rodUnloadingToCustomerLedger?: boolean;
   cementLaborRate?: number;
   cementShippingRate?: number;
   cementLaborCost?: number;
   cementShippingCost?: number;
   cementTotalBags?: number;
+  cementLoadingToCustomerLedger?: boolean;
   cementUnloadingRate?: number;
   cementUnloadingCost?: number;
   cementUnloadingToCustomerLedger?: boolean;
@@ -337,12 +342,40 @@ function InvoicesContent() {
     }
     return '';
   });
+  const [rodLoadingToCustomerLedger, setRodLoadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_loading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
+  const [rodUnloadingRateInput, setRodUnloadingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_unloading_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [rodUnloadingToCustomerLedger, setRodUnloadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_unloading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
   const [cementLaborRateInput, setCementLaborRateInput] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('dokan_sales_cement_labor_rate');
       return saved ? formatDecimalInput(saved) : '';
     }
     return '';
+  });
+  const [cementLoadingToCustomerLedger, setCementLoadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_loading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return false;
   });
   const [cementUnloadingRateInput, setCementUnloadingRateInput] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -378,6 +411,7 @@ function InvoicesContent() {
   const [engineerCementRateInput, setEngineerCementRateInput] = useState<string>('');
 
   const [rodLaborTotalInput, setRodLaborTotalInput] = useState<string>('');
+  const [rodUnloadingTotalInput, setRodUnloadingTotalInput] = useState<string>('');
   const [cementLaborTotalInput, setCementLaborTotalInput] = useState<string>('');
   const [cementUnloadingTotalInput, setCementUnloadingTotalInput] = useState<string>('');
   const [rodShippingRateInput, setRodShippingRateInput] = useState<string>(() => {
@@ -396,6 +430,7 @@ function InvoicesContent() {
   });
 
   const rodLaborRate = parseInputNumber(rodLaborRateInput);
+  const rodUnloadingRate = parseInputNumber(rodUnloadingRateInput);
   const cementLaborRate = parseInputNumber(cementLaborRateInput);
   const cementUnloadingRate = parseInputNumber(cementUnloadingRateInput);
   const rodShippingRate = parseInputNumber(rodShippingRateInput);
@@ -417,14 +452,18 @@ function InvoicesContent() {
   const handleSaveDefaultCharges = () => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('dokan_sales_rod_labor_rate', (rodLaborRate || 0).toString());
+      localStorage.setItem('dokan_sales_rod_loading_to_customer', rodLoadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_rod_unloading_rate', (rodUnloadingRate || 0).toString());
+      localStorage.setItem('dokan_sales_rod_unloading_to_customer', rodUnloadingToCustomerLedger.toString());
       localStorage.setItem('dokan_sales_cement_labor_rate', (cementLaborRate || 0).toString());
+      localStorage.setItem('dokan_sales_cement_loading_to_customer', cementLoadingToCustomerLedger.toString());
       localStorage.setItem('dokan_sales_cement_unloading_rate', (cementUnloadingRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_unloading_to_customer', cementUnloadingToCustomerLedger.toString());
       localStorage.setItem('dokan_sales_shipping_to_customer', shippingCostToCustomerLedger.toString());
       localStorage.setItem('dokan_sales_rod_shipping_rate', (rodShippingRate || 0).toString());
       localStorage.setItem('dokan_sales_cement_shipping_rate', (cementShippingRate || 0).toString());
       localStorage.setItem('dokan_sales_shipping_cost', (shippingCost || 0).toString());
-      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লেবার: ৳${toBengaliDigits(rodLaborRate)}/কেজি, লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা, আনলোডিং: ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা [${cementUnloadingToCustomerLedger ? 'লেজারে যুক্ত' : 'লেজারে বাদ'}]${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)} [${shippingCostToCustomerLedger ? 'লেজারে যুক্ত' : 'লেজারে বাদ'}]` : ''})`);
+      toast.success(`ডিফল্ট চার্জ সেভ করা হয়েছে (রড লোডিং: ৳${toBengaliDigits(rodLaborRate)}/কেজি [${rodLoadingToCustomerLedger ? 'লেজারে যুক্ত' : 'দোকান প্রদেয়'}], রড আনলোডিং: ৳${toBengaliDigits(rodUnloadingRate)}/কেজি [${rodUnloadingToCustomerLedger ? 'লেজারে যুক্ত' : 'দোকান প্রদেয়'}], সিমেন্ট লোডিং: ৳${toBengaliDigits(cementLaborRate)}/বস্তা [${cementLoadingToCustomerLedger ? 'লেজারে যুক্ত' : 'দোকান প্রদেয়'}], সিমেন্ট আনলোডিং: ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা [${cementUnloadingToCustomerLedger ? 'লেজারে যুক্ত' : 'দোকান প্রদেয়'}]${shippingCost > 0 ? `, গাড়ি ভাড়া: ৳${toBengaliDigits(shippingCost)} [${shippingCostToCustomerLedger ? 'লেজারে যুক্ত' : 'দোকান প্রদেয়'}]` : ''})`);
     }
   };
 
@@ -519,11 +558,16 @@ function InvoicesContent() {
           rodLaborCost: meta.rodLaborCost !== undefined ? Number(meta.rodLaborCost) : undefined,
           rodShippingCost: meta.rodShippingCost !== undefined ? Number(meta.rodShippingCost) : undefined,
           rodRingTotalKg: meta.rodRingTotalKg !== undefined ? Number(meta.rodRingTotalKg) : undefined,
+          rodLoadingToCustomerLedger: meta.rodLoadingToCustomerLedger !== undefined ? Boolean(meta.rodLoadingToCustomerLedger) : undefined,
+          rodUnloadingRate: meta.rodUnloadingRate !== undefined ? Number(meta.rodUnloadingRate) : undefined,
+          rodUnloadingCost: meta.rodUnloadingCost !== undefined ? Number(meta.rodUnloadingCost) : undefined,
+          rodUnloadingToCustomerLedger: meta.rodUnloadingToCustomerLedger !== undefined ? Boolean(meta.rodUnloadingToCustomerLedger) : undefined,
           cementLaborRate: meta.cementLaborRate !== undefined ? Number(meta.cementLaborRate) : undefined,
           cementShippingRate: meta.cementShippingRate !== undefined ? Number(meta.cementShippingRate) : undefined,
           cementLaborCost: meta.cementLaborCost !== undefined ? Number(meta.cementLaborCost) : undefined,
           cementShippingCost: meta.cementShippingCost !== undefined ? Number(meta.cementShippingCost) : undefined,
           cementTotalBags: meta.cementTotalBags !== undefined ? Number(meta.cementTotalBags) : undefined,
+          cementLoadingToCustomerLedger: meta.cementLoadingToCustomerLedger !== undefined ? Boolean(meta.cementLoadingToCustomerLedger) : undefined,
           cementUnloadingRate: meta.cementUnloadingRate !== undefined ? Number(meta.cementUnloadingRate) : undefined,
           cementUnloadingCost: meta.cementUnloadingCost !== undefined ? Number(meta.cementUnloadingCost) : undefined,
           cementUnloadingToCustomerLedger: meta.cementUnloadingToCustomerLedger !== undefined ? Boolean(meta.cementUnloadingToCustomerLedger) : undefined,
@@ -742,6 +786,15 @@ function InvoicesContent() {
           setSenderTxnRef(parsedOrderMeta.senderTxnRef);
         }
         
+        if (parsedOrderMeta.rodLoadingToCustomerLedger !== undefined) {
+          setRodLoadingToCustomerLedger(Boolean(parsedOrderMeta.rodLoadingToCustomerLedger));
+        }
+        if (parsedOrderMeta.rodUnloadingToCustomerLedger !== undefined) {
+          setRodUnloadingToCustomerLedger(Boolean(parsedOrderMeta.rodUnloadingToCustomerLedger));
+        }
+        if (parsedOrderMeta.cementLoadingToCustomerLedger !== undefined) {
+          setCementLoadingToCustomerLedger(Boolean(parsedOrderMeta.cementLoadingToCustomerLedger));
+        }
         if (parsedOrderMeta.cementUnloadingToCustomerLedger !== undefined) {
           setCementUnloadingToCustomerLedger(Boolean(parsedOrderMeta.cementUnloadingToCustomerLedger));
         }
@@ -955,6 +1008,13 @@ function InvoicesContent() {
         ? (rodLaborTotalInput !== '' ? parseInputNumber(rodLaborTotalInput) : rodLaborAuto)
         : 0)
     : 0;
+  
+  const rodUnloadingAuto = round2(rodRingTotalKg * (rodUnloadingRate || 0));
+  const rodUnloadingTotal = chargeCalcMode === 'rate'
+    ? (rodRingTotalKg > 0
+        ? (rodUnloadingTotalInput !== '' ? parseInputNumber(rodUnloadingTotalInput) : rodUnloadingAuto)
+        : 0)
+    : 0;
   const rodShippingTotal = 0;
 
   const cementLaborAuto = round2(cementTotalBags * (cementLaborRate || 0));
@@ -977,6 +1037,12 @@ function InvoicesContent() {
     const formatted = formatDecimalInput(val);
     setRodLaborRateInput(formatted);
     setRodLaborTotalInput('');
+  };
+
+  const handleRodUnloadingRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setRodUnloadingRateInput(formatted);
+    setRodUnloadingTotalInput('');
   };
 
   const handleCementLaborRateChange = (val: string) => {
@@ -1013,9 +1079,14 @@ function InvoicesContent() {
     }
   };
 
-  // Customer pays Rod labor + Cement Unloading labor (if toggled on) or manual labor; Cement loading is shop loading charge paid by dokan
+  // Labor charges added to customer bill/ledger depending on each individual toggle
+  const effectiveRodLoading = rodLoadingToCustomerLedger ? rodLaborTotal : 0;
+  const effectiveRodUnloading = rodUnloadingToCustomerLedger ? rodUnloadingTotal : 0;
+  const effectiveCementLoading = cementLoadingToCustomerLedger ? cementLaborTotal : 0;
+  const effectiveCementUnloading = cementUnloadingToCustomerLedger ? cementUnloadingTotal : 0;
+
   const laborCost = chargeCalcMode === 'rate' 
-    ? round2(rodLaborTotal + (cementUnloadingToCustomerLedger ? cementUnloadingTotal : 0)) 
+    ? round2(effectiveRodLoading + effectiveRodUnloading + effectiveCementLoading + effectiveCementUnloading) 
     : manualLaborCost;
   // Note: shippingCost (vehicle rent) is directly entered as a flat amount and parsed above
 
@@ -1095,7 +1166,11 @@ function InvoicesContent() {
     
     // Load default per-unit rates from localStorage
     const defRodLab = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_rod_labor_rate') || '') : '';
+    const defRodLoadToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_rod_loading_to_customer') : null;
+    const defRodUnload = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_rod_unloading_rate') || '') : '';
+    const defRodUnloadToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_rod_unloading_to_customer') : null;
     const defCemLab = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_cement_labor_rate') || '') : '';
+    const defCemLoadToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_cement_loading_to_customer') : null;
     const defCemUnload = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_cement_unloading_rate') || '') : '';
     const defShip = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_shipping_cost') || '') : '';
     const defRodShip = typeof window !== 'undefined' ? (localStorage.getItem('dokan_sales_rod_shipping_rate') || '') : '';
@@ -1103,8 +1178,13 @@ function InvoicesContent() {
 
     setRodLaborRateInput(defRodLab ? formatDecimalInput(defRodLab) : '');
     setRodLaborTotalInput('');
+    setRodLoadingToCustomerLedger(defRodLoadToCust !== null ? defRodLoadToCust === 'true' : true);
+    setRodUnloadingRateInput(defRodUnload ? formatDecimalInput(defRodUnload) : '');
+    setRodUnloadingTotalInput('');
+    setRodUnloadingToCustomerLedger(defRodUnloadToCust !== null ? defRodUnloadToCust === 'true' : true);
     setCementLaborRateInput(defCemLab ? formatDecimalInput(defCemLab) : '');
     setCementLaborTotalInput('');
+    setCementLoadingToCustomerLedger(defCemLoadToCust !== null ? defCemLoadToCust === 'true' : false);
     setCementUnloadingRateInput(defCemUnload ? formatDecimalInput(defCemUnload) : '');
     setCementUnloadingTotalInput('');
     const defCemUnloadToCust = typeof window !== 'undefined' ? localStorage.getItem('dokan_sales_cement_unloading_to_customer') : null;
@@ -1246,10 +1326,33 @@ function InvoicesContent() {
     else if (invAny.rodLaborRate && invAny.rodRingTotalKg) setRodLaborTotalInput(formatDecimalInput(String(round2(invAny.rodLaborRate * invAny.rodRingTotalKg))));
     else setRodLaborTotalInput('');
 
+    if (invAny.rodLoadingToCustomerLedger !== undefined) {
+      setRodLoadingToCustomerLedger(Boolean(invAny.rodLoadingToCustomerLedger));
+    } else {
+      setRodLoadingToCustomerLedger(true);
+    }
+
+    if (invAny.rodUnloadingRate !== undefined) setRodUnloadingRateInput(formatDecimalInput(String(invAny.rodUnloadingRate || '')));
+    if (invAny.rodUnloadingCost !== undefined) setRodUnloadingTotalInput(formatDecimalInput(String(invAny.rodUnloadingCost || '')));
+    else if (invAny.rodUnloadingRate && invAny.rodRingTotalKg) setRodUnloadingTotalInput(formatDecimalInput(String(round2(invAny.rodUnloadingRate * invAny.rodRingTotalKg))));
+    else setRodUnloadingTotalInput('');
+
+    if (invAny.rodUnloadingToCustomerLedger !== undefined) {
+      setRodUnloadingToCustomerLedger(Boolean(invAny.rodUnloadingToCustomerLedger));
+    } else {
+      setRodUnloadingToCustomerLedger(true);
+    }
+
     if (invAny.cementLaborRate !== undefined) setCementLaborRateInput(formatDecimalInput(String(invAny.cementLaborRate || '')));
     if (invAny.cementLaborCost !== undefined) setCementLaborTotalInput(formatDecimalInput(String(invAny.cementLaborCost || '')));
     else if (invAny.cementLaborRate && invAny.cementTotalBags) setCementLaborTotalInput(formatDecimalInput(String(round2(invAny.cementLaborRate * invAny.cementTotalBags))));
     else setCementLaborTotalInput('');
+
+    if (invAny.cementLoadingToCustomerLedger !== undefined) {
+      setCementLoadingToCustomerLedger(Boolean(invAny.cementLoadingToCustomerLedger));
+    } else {
+      setCementLoadingToCustomerLedger(false);
+    }
 
     if (invAny.cementUnloadingRate !== undefined) setCementUnloadingRateInput(formatDecimalInput(String(invAny.cementUnloadingRate || '')));
     if (invAny.cementUnloadingCost !== undefined) setCementUnloadingTotalInput(formatDecimalInput(String(invAny.cementUnloadingCost || '')));
@@ -1384,12 +1487,22 @@ function InvoicesContent() {
         rodLaborRate: Number(rodLaborRate || 0),
         rodShippingRate: Number(rodShippingRate || 0),
         rodLaborCost: Number(rodLaborTotal || 0),
+        rodLoadingToCustomerLedger: Boolean(rodLoadingToCustomerLedger),
+        rodUnloadingRate: Number(rodUnloadingRate || 0),
+        rodUnloadingCost: Number(rodUnloadingTotal || 0),
+        rodUnloadingToCustomerLedger: Boolean(rodUnloadingToCustomerLedger),
+        rodUnloadingPaid: editingInvoiceMeta ? Boolean(editingInvoiceMeta.rodUnloadingPaid) : false,
+        rodUnloadingPaidAmount: editingInvoiceMeta ? Number(editingInvoiceMeta.rodUnloadingPaidAmount || 0) : 0,
+        rodUnloadingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.rodUnloadingPaidAt || '') : '',
+        rodUnloadingPaidMethod: editingInvoiceMeta ? (editingInvoiceMeta.rodUnloadingPaidMethod || '') : '',
+        rodUnloadingSardar: editingInvoiceMeta ? (editingInvoiceMeta.rodUnloadingSardar || '') : '',
         rodShippingCost: Number(rodShippingTotal || 0),
         rodRingTotalKg: Number(rodRingTotalKg || 0),
         cementLaborRate: Number(cementLaborRate || 0),
         cementShippingRate: Number(cementShippingRate || 0),
         cementLaborCost: Number(cementLaborTotal || 0),
         cementLoadingCharge: Number(cementLaborTotal || 0),
+        cementLoadingToCustomerLedger: Boolean(cementLoadingToCustomerLedger),
         cementLoadingPaid: editingInvoiceMeta ? Boolean(editingInvoiceMeta.cementLoadingPaid) : false,
         cementLoadingPaidAmount: editingInvoiceMeta ? Number(editingInvoiceMeta.cementLoadingPaidAmount || 0) : 0,
         cementLoadingPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.cementLoadingPaidAt || '') : '',
@@ -1413,7 +1526,7 @@ function InvoicesContent() {
         rodLaborPaidAt: editingInvoiceMeta ? (editingInvoiceMeta.rodLaborPaidAt || '') : '',
         rodLaborPaidMethod: editingInvoiceMeta ? (editingInvoiceMeta.rodLaborPaidMethod || '') : '',
         rodLaborSardar: editingInvoiceMeta ? (editingInvoiceMeta.rodLaborSardar || '') : '',
-        isShopLoadingExpense: true,
+        isShopLoadingExpense: !cementLoadingToCustomerLedger,
         cementShippingCost: Number(cementShippingTotal || 0),
         cementTotalBags: Number(cementTotalBags || 0),
         laborCost: Number(laborCost || 0),
@@ -2830,7 +2943,7 @@ function InvoicesContent() {
                       <div className="space-y-3 font-bengali">
                           {/* Rod & Ring Rate Box */}
                           {(rodRingTotalKg > 0 || (rodRingTotalKg === 0 && cementTotalBags === 0)) && (
-                            <div className="bg-sky-50/60 border border-sky-200 rounded-md p-3 space-y-2">
+                            <div className="bg-sky-50/60 border border-sky-200 rounded-md p-3 space-y-3">
                               <div className="flex items-center justify-between text-xs">
                                 <span className="font-black text-sky-900 flex items-center gap-1.5">
                                   🔹 রড ও রিং লেবার খরচ
@@ -2839,32 +2952,165 @@ function InvoicesContent() {
                                   মোট ওজন: {toBengaliDigits(rodRingTotalKg.toLocaleString('en-IN'))} কেজি
                                 </span>
                               </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                  <Label className="text-[11px] font-bold text-slate-600">লেবার রেট (৳/কেজি)</Label>
-                                  <Input 
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={rodLaborRateInput}
-                                    onChange={e => handleRodLaborRateChange(e.target.value)}
-                                    placeholder="০.০০"
-                                    className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-slate-800 font-bengali"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <Label className="text-[11px] font-bold text-slate-600">মোট লেবার (৳)</Label>
-                                    <span className="text-[9px] text-amber-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+
+                              {/* Rod Loading Section */}
+                              <div className={cn(
+                                "space-y-1.5 p-2 rounded-md transition-all",
+                                rodLoadingToCustomerLedger ? "bg-sky-50/80 border border-sky-200" : "bg-slate-50/80 border border-slate-200"
+                              )}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label className="text-[11px] font-bold text-slate-700">লোডিং লেবার খরচ</Label>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={rodLoadingToCustomerLedger}
+                                      onClick={() => setRodLoadingToCustomerLedger(!rodLoadingToCustomerLedger)}
+                                      className={cn(
+                                        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-sky-500",
+                                        rodLoadingToCustomerLedger ? "bg-sky-600" : "bg-slate-300"
+                                      )}
+                                      title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                    >
+                                      <span
+                                        className={cn(
+                                          "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                          rodLoadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                        )}
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setRodLoadingToCustomerLedger(!rodLoadingToCustomerLedger)}
+                                      className={cn(
+                                        "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                        rodLoadingToCustomerLedger 
+                                          ? "bg-sky-100 text-sky-800 border-sky-300" 
+                                          : "bg-slate-200 text-slate-600 border-slate-300"
+                                      )}
+                                    >
+                                      {rodLoadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                    </button>
                                   </div>
-                                  <Input 
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={rodLaborTotalInput !== '' ? rodLaborTotalInput : (rodLaborTotal > 0 ? String(rodLaborTotal) : '')}
-                                    onChange={e => setRodLaborTotalInput(formatDecimalInput(e.target.value))}
-                                    placeholder={rodLaborTotal > 0 ? String(rodLaborTotal) : '০.০০'}
-                                    className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-amber-700 font-bengali"
-                                  />
                                 </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] text-slate-500 font-medium">লোডিং রেট (৳/কেজি)</span>
+                                    <Input 
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={rodLaborRateInput}
+                                      onChange={e => handleRodLaborRateChange(e.target.value)}
+                                      placeholder="০.০০"
+                                      className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-slate-800 font-bengali"
+                                    />
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] text-slate-500 font-medium">মোট লোডিং (৳)</span>
+                                      <span className="text-[9px] text-amber-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                    </div>
+                                    <Input 
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={rodLaborTotalInput !== '' ? rodLaborTotalInput : (rodLaborTotal > 0 ? String(rodLaborTotal) : '')}
+                                      onChange={e => setRodLaborTotalInput(formatDecimalInput(e.target.value))}
+                                      placeholder={rodLaborTotal > 0 ? String(rodLaborTotal) : '০.০০'}
+                                      className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-amber-700 font-bengali"
+                                    />
+                                  </div>
+                                </div>
+                                <span className={cn(
+                                  "text-[10px] font-medium block",
+                                  rodLoadingToCustomerLedger ? "text-sky-800" : "text-amber-800"
+                                )}>
+                                  {rodLoadingToCustomerLedger 
+                                    ? '💡 রড লোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                    : '💡 রড লোডিং খরচ কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                                </span>
+                              </div>
+
+                              {/* Rod Unloading Section */}
+                              <div className={cn(
+                                "pt-2 border-t border-sky-200/80 space-y-1.5 p-2 rounded-md transition-all",
+                                rodUnloadingToCustomerLedger ? "bg-emerald-50/40 border border-emerald-200/60" : "bg-slate-50/80 border border-slate-200"
+                              )}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label className="text-[11px] font-bold text-slate-700">আনলোডিং লেবার খরচ</Label>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={rodUnloadingToCustomerLedger}
+                                      onClick={() => setRodUnloadingToCustomerLedger(!rodUnloadingToCustomerLedger)}
+                                      className={cn(
+                                        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-emerald-500",
+                                        rodUnloadingToCustomerLedger ? "bg-emerald-600" : "bg-slate-300"
+                                      )}
+                                      title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                    >
+                                      <span
+                                        className={cn(
+                                          "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                          rodUnloadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                        )}
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setRodUnloadingToCustomerLedger(!rodUnloadingToCustomerLedger)}
+                                      className={cn(
+                                        "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                        rodUnloadingToCustomerLedger 
+                                          ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                                          : "bg-slate-200 text-slate-600 border-slate-300"
+                                      )}
+                                    >
+                                      {rodUnloadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] text-slate-500 font-medium">আনলোডিং রেট (৳/কেজি)</span>
+                                    <Input 
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={rodUnloadingRateInput}
+                                      onChange={e => handleRodUnloadingRateChange(e.target.value)}
+                                      placeholder="০.০০"
+                                      className={cn(
+                                        "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                        rodUnloadingToCustomerLedger ? "border-emerald-300 text-slate-800" : "border-slate-300 text-slate-800"
+                                      )}
+                                    />
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] text-slate-500 font-medium">মোট আনলোডিং (৳)</span>
+                                      <span className="text-[9px] text-emerald-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                    </div>
+                                    <Input 
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={rodUnloadingTotalInput !== '' ? rodUnloadingTotalInput : (rodUnloadingTotal > 0 ? String(rodUnloadingTotal) : '')}
+                                      onChange={e => setRodUnloadingTotalInput(formatDecimalInput(e.target.value))}
+                                      placeholder={rodUnloadingTotal > 0 ? String(rodUnloadingTotal) : '০.০০'}
+                                      className={cn(
+                                        "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                        rodUnloadingToCustomerLedger ? "border-emerald-300 text-emerald-800" : "border-slate-300 text-slate-700"
+                                      )}
+                                    />
+                                  </div>
+                                </div>
+                                <span className={cn(
+                                  "text-[10px] font-medium block",
+                                  rodUnloadingToCustomerLedger ? "text-emerald-800" : "text-amber-800"
+                                )}>
+                                  {rodUnloadingToCustomerLedger 
+                                    ? '💡 রড আনলোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                    : '💡 রড আনলোডিং খরচ কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                                </span>
                               </div>
                             </div>
                           )}
@@ -2874,16 +3120,54 @@ function InvoicesContent() {
                             <div className="bg-amber-50/60 border border-amber-200 rounded-md p-3 space-y-2">
                               <div className="flex items-center justify-between text-xs">
                                 <span className="font-black text-amber-900 flex items-center gap-1.5">
-                                  🔸 সিমেন্ট লোডিং খরচ (বস্তা হিসেবে)
+                                  🔸 সিমেন্ট লোডিং ও আনলোডিং খরচ (বস্তা হিসেবে)
                                 </span>
                                 <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[11px]">
                                   মোট পরিমাণ: {toBengaliDigits(cementTotalBags.toLocaleString('en-IN'))} বস্তা
                                 </span>
                               </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between">
-                                  <Label className="text-[11px] font-bold text-slate-700">লোডিং লেবার রেট (৳/বস্তা)</Label>
-                                  <span className="text-[9px] bg-amber-200/80 text-amber-900 font-black px-1.5 py-0.2 rounded">দোকান প্রদেয়</span>
+
+                              {/* Cement Loading Section */}
+                              <div className={cn(
+                                "space-y-1.5 p-2 rounded-md transition-all",
+                                cementLoadingToCustomerLedger ? "bg-amber-100/50 border border-amber-300" : "bg-slate-50/80 border border-slate-200"
+                              )}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label className="text-[11px] font-bold text-slate-700">লোডিং লেবার খরচ</Label>
+                                  
+                                  {/* Toggle Button for Customer Ledger */}
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={cementLoadingToCustomerLedger}
+                                      onClick={() => setCementLoadingToCustomerLedger(!cementLoadingToCustomerLedger)}
+                                      className={cn(
+                                        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-amber-500",
+                                        cementLoadingToCustomerLedger ? "bg-amber-600" : "bg-slate-300"
+                                      )}
+                                      title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                    >
+                                      <span
+                                        className={cn(
+                                          "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                          cementLoadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                        )}
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCementLoadingToCustomerLedger(!cementLoadingToCustomerLedger)}
+                                      className={cn(
+                                        "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                        cementLoadingToCustomerLedger 
+                                          ? "bg-amber-200 text-amber-900 border-amber-400" 
+                                          : "bg-slate-200 text-slate-600 border-slate-300"
+                                      )}
+                                    >
+                                      {cementLoadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                   <div className="space-y-0.5">
@@ -2912,8 +3196,13 @@ function InvoicesContent() {
                                     />
                                   </div>
                                 </div>
-                                <span className="text-[10px] text-amber-800 font-medium block">
-                                  💡 লোডিং খরচ কাস্টমারের বিলে যুক্ত হবে না, দোকান লোডিং বিল হিসেবে পরিশোধ হবে।
+                                <span className={cn(
+                                  "text-[10px] font-medium block",
+                                  cementLoadingToCustomerLedger ? "text-amber-900" : "text-amber-800"
+                                )}>
+                                  {cementLoadingToCustomerLedger 
+                                    ? '💡 সিমেন্ট লোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                    : '💡 লোডিং খরচ কাস্টমারের বিলে যুক্ত হবে না, দোকান লোডিং বিল হিসেবে পরিশোধ হবে।'}
                                 </span>
                               </div>
 
@@ -3486,10 +3775,45 @@ function InvoicesContent() {
                         )}
 
                         {rodLaborTotal > 0 && (
-                          <div className="flex justify-between text-amber-600">
-                            <span>লেবার খরচ (রড)</span>
-                            <span className="font-bold">+ ৳ {toBengaliDigits(rodLaborTotal.toLocaleString('en-IN'))}</span>
-                          </div>
+                          rodLoadingToCustomerLedger ? (
+                            <div className="flex justify-between text-sky-700">
+                              <span>রড লোডিং লেবার</span>
+                              <span className="font-bold">+ ৳ {toBengaliDigits(rodLaborTotal.toLocaleString('en-IN'))}</span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-center bg-sky-50/60 p-1.5 rounded border border-sky-200 text-[11px] text-sky-900 font-bold">
+                              <span>রড লোডিং (দোকান প্রদেয়):</span>
+                              <span className="font-black font-mono">৳ {toBengaliDigits(rodLaborTotal.toLocaleString('en-IN'))} (বিলে যুক্ত নয়)</span>
+                            </div>
+                          )
+                        )}
+
+                        {rodUnloadingTotal > 0 && (
+                          rodUnloadingToCustomerLedger ? (
+                            <div className="flex justify-between text-emerald-700">
+                              <span>রড আনলোডিং লেবার</span>
+                              <span className="font-bold">+ ৳ {toBengaliDigits(rodUnloadingTotal.toLocaleString('en-IN'))}</span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-center bg-emerald-50/60 p-1.5 rounded border border-emerald-200 text-[11px] text-emerald-900 font-bold">
+                              <span>রড আনলোডিং (দোকান প্রদেয়):</span>
+                              <span className="font-black font-mono">৳ {toBengaliDigits(rodUnloadingTotal.toLocaleString('en-IN'))} (বিলে যুক্ত নয়)</span>
+                            </div>
+                          )
+                        )}
+
+                        {cementLaborTotal > 0 && (
+                          cementLoadingToCustomerLedger ? (
+                            <div className="flex justify-between text-amber-700">
+                              <span>সিমেন্ট লোডিং লেবার</span>
+                              <span className="font-bold">+ ৳ {toBengaliDigits(cementLaborTotal.toLocaleString('en-IN'))}</span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-center bg-amber-50 p-1.5 rounded border border-amber-200 text-[11px] text-amber-900 font-bold">
+                              <span>সিমেন্ট লোডিং (দোকান প্রদেয়):</span>
+                              <span className="font-black font-mono">৳ {toBengaliDigits(cementLaborTotal.toLocaleString('en-IN'))} (বিলে যুক্ত নয়)</span>
+                            </div>
+                          )
                         )}
 
                         {cementUnloadingTotal > 0 && (
@@ -3510,13 +3834,6 @@ function InvoicesContent() {
                           <div className="flex justify-between text-amber-600">
                             <span>লেবার খরচ</span>
                             <span className="font-bold">+ ৳ {toBengaliDigits(manualLaborCost.toLocaleString('en-IN'))}</span>
-                          </div>
-                        )}
-
-                        {cementLaborTotal > 0 && (
-                          <div className="flex justify-between items-center bg-amber-50 p-1.5 rounded border border-amber-200 text-[11px] text-amber-900 font-bold">
-                            <span>দোকান প্রদেয় লোডিং চার্জ:</span>
-                            <span className="font-black font-mono">৳ {toBengaliDigits(cementLaborTotal.toLocaleString('en-IN'))}</span>
                           </div>
                         )}
 

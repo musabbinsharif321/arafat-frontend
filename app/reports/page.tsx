@@ -12,7 +12,7 @@ import {
   Plus, Percent, ArrowRight, Lightbulb, Settings2,
   Download, ArrowLeft, Clock, Eye, EyeOff, Lock, KeyRound, CheckCircle2, ChevronRight, ChevronLeft, CalendarDays,
   ShoppingBag, Layers, DollarSign, Calculator,
-  Copy, Check
+  Copy, Check, SlidersHorizontal, RotateCcw, Sparkles
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -267,10 +267,47 @@ function MasterReportsContent() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [hawlats, setHawlats] = useState<{ id: string; personName: string; amount: number; note?: string; date?: string }[]>([]);
   const [totalCash, setTotalCash] = useState<number>(0);
-  const [initialCapital, setInitialCapital] = useState<number>(10000000);
+  const [initialCapital, setInitialCapital] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_balance_sheet_initial_capital');
+      if (saved) {
+        const parsed = Number(saved);
+        if (!isNaN(parsed)) return parsed;
+      }
+    }
+    return 10000000;
+  });
   const [isEditingCapital, setIsEditingCapital] = useState<boolean>(false);
   const [tempCapitalInput, setTempCapitalInput] = useState<string>('10000000');
   const [balanceSheetDate, setBalanceSheetDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+
+  // Balance Sheet Custom Valuation Stock Rates (Khata Hisab Override)
+  const [balanceSheetCustomRates, setBalanceSheetCustomRates] = useState<Record<string, number>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('dokan_balance_sheet_custom_rates');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error reading dokan_balance_sheet_custom_rates:', e);
+      }
+    }
+    return {};
+  });
+  const [isEditingStockRates, setIsEditingStockRates] = useState<boolean>(false);
+  const [tempCustomRates, setTempCustomRates] = useState<Record<string, string>>({});
+  const [stockRateSearchQuery, setStockRateSearchQuery] = useState<string>('');
+  const [stockRateCatFilter, setStockRateCatFilter] = useState<'all' | 'rod' | 'cement' | 'ring' | 'other' | 'custom_only'>('all');
+  const [stockRateOnlyInStock, setStockRateOnlyInStock] = useState<boolean>(true);
+  const [bulkRodRate, setBulkRodRate] = useState<string>('');
+  const [bulkCementRate, setBulkCementRate] = useState<string>('');
+
+  const getBsEffectiveRate = useCallback((p: Product): number => {
+    const custom = balanceSheetCustomRates[p.id];
+    if (custom !== undefined && custom !== null && !isNaN(custom) && custom > 0) {
+      return custom;
+    }
+    return p.buyPrice || 0;
+  }, [balanceSheetCustomRates]);
   const [incomeStatementDate, setIncomeStatementDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [incomePeriodMode, setIncomePeriodMode] = useState<'month' | 'today' | 'all'>('month');
 
@@ -1776,56 +1813,95 @@ function MasterReportsContent() {
               const totalOutflow = cashPurchaseOutflow + expenseOutflow + supplierPaymentOutflow + loanOutflow + daySaleReturnCashRefund;
               const netCashDifference = totalCashInflow - totalOutflow;
 
-              // Calculate Historical Closing Cash Balance up to selected date
-              let cumIn = 0;
-              let cumOut = 0;
-              const bankMethods = ['bank', 'banktobank', 'cheque', 'check', 'mobile_banking', 'mobile', 'bkash'];
-
-              transactions.forEach(t => {
-                if (t.raw?.status === 'cancelled' || t.raw?.status === 'rejected' || t.raw?.status === 'draft') return;
-                const d = safeParseDate(t.createdAt);
-                if (!d || format(d, 'yyyy-MM-dd') > selectedDateStr) return;
-                if (t.raw?.notes?.includes('isHistoricalLedger')) return;
-
-                const tType = (t.type || '').toLowerCase();
-                const pMethod = ((t.paymentMethod || '') as string).toLowerCase();
-                const pAmt = tType === 'sale_return' ? Number(t.paidAmount || 0) : Number(t.paidAmount || t.amount || 0);
-
-                if (tType === 'sale' || tType === 'payment_in' || tType === 'loan_in' || tType === 'income') {
-                  if (pMethod === 'split') {
-                    let meta: any = {};
-                    try {
-                      if (t.raw?.notes?.startsWith('{')) meta = JSON.parse(t.raw.notes.split('\n')[0]);
-                    } catch {}
-                    const cPart = Number(meta.cashPaidAmount || meta.splitCashAmount || pAmt);
-                    cumIn += cPart;
-                    if (t.raw?.cheque_status === 'cleared') {
-                      const qPart = Number(meta.chequePaidAmount || meta.splitChequeAmount || 0);
-                      cumIn += qPart;
-                    }
-                  } else if (pMethod.includes('cheque') || pMethod.includes('check')) {
-                    if (t.raw?.cheque_status === 'cleared') cumIn += pAmt;
-                  } else if (!bankMethods.some(b => pMethod.includes(b))) {
-                    cumIn += pAmt;
-                  }
-                } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense' || tType === 'sale_return') {
-                  if (!bankMethods.some(b => pMethod.includes(b))) {
-                    cumOut += pAmt;
-                  }
-                }
-              });
-
-              expenses.forEach(e => {
-                const d = safeParseDate(e.date || e.createdAt);
-                if (!d || format(d, 'yyyy-MM-dd') > selectedDateStr) return;
-                const pMethod = (((e as any).paymentMethod || '') as string).toLowerCase();
-                if (!bankMethods.some(b => pMethod.includes(b))) {
-                  cumOut += Number(e.amount || 0);
-                }
-              });
-
+              // Calculate Historical Closing Cash Balance for selected date
+              // Rolling back subsequent cash movements from the live totalCash balance
               const isTopsheetToday = !topsheetDate || topsheetDate === format(new Date(), 'yyyy-MM-dd');
-              const closingEndCash = isTopsheetToday ? (totalCash || 0) : (cumIn - cumOut);
+              let closingEndCash = totalCash || 0;
+
+              if (!isTopsheetToday) {
+                const bankMethods = ['bank', 'banktobank', 'mobile_banking', 'mobile', 'bkash'];
+                let cashInAfter = 0;
+                let cashOutAfter = 0;
+
+                transactions.forEach(t => {
+                  if (t.raw?.status === 'cancelled' || t.raw?.status === 'rejected' || t.raw?.status === 'draft') return;
+                  if (t.raw?.notes?.includes('isHistoricalLedger')) return;
+                  const d = safeParseDate(t.createdAt);
+                  if (!d) return;
+                  const txDateStr = format(d, 'yyyy-MM-dd');
+                  if (txDateStr <= selectedDateStr) return; // Only events occurring AFTER selected date
+
+                  const tType = (t.type || '').toLowerCase();
+                  const pMethod = ((t.paymentMethod || '') as string).toLowerCase();
+                  const isBank = bankMethods.some(b => pMethod.includes(b));
+                  const isCheque = pMethod.includes('cheque') || pMethod.includes('check');
+                  const isSplit = pMethod === 'split';
+                  const paid = Number(t.paidAmount || 0);
+
+                  let meta: any = {};
+                  try {
+                    if (t.raw?.notes?.startsWith('{')) meta = JSON.parse(t.raw.notes.split('\n')[0]);
+                  } catch {}
+
+                  if (tType === 'sale' || tType === 'payment_in' || tType === 'loan_in' || tType === 'income') {
+                    if (isSplit) {
+                      const cPart = Number(meta.cashPaidAmount || meta.splitCashAmount || paid);
+                      cashInAfter += cPart;
+                      if (t.raw?.cheque_status === 'cleared') {
+                        const qPart = Number(meta.chequePaidAmount || meta.splitChequeAmount || 0);
+                        cashInAfter += qPart;
+                      }
+                    } else if (isCheque) {
+                      if (t.raw?.cheque_status === 'cleared') cashInAfter += paid;
+                    } else if (!isBank) {
+                      cashInAfter += paid;
+                    }
+                  } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'sale_return') {
+                    if (!isBank && !isCheque) {
+                      cashOutAfter += paid;
+                    }
+                  }
+
+                  // Extra shipping & labor cash out from transaction notes
+                  if (meta) {
+                    if (tType === 'purchase') {
+                      if (meta.shippingPayer !== 'supplier') {
+                        cashOutAfter += Number(meta.shippingPaidAmount || (meta.shippingStatus === 'paid' ? meta.shippingCost : 0) || 0);
+                      }
+                      if (meta.laborPayer !== 'supplier') {
+                        cashOutAfter += Number(meta.laborPaidAmount || (meta.laborStatus === 'paid' ? meta.laborCost : 0) || 0);
+                      }
+                    } else if (tType === 'sale') {
+                      if (!meta.isHistoricalLabor) {
+                        const cL = Number(meta.cementLoadingPaidAmount || (meta.cementLoadingPaid ? meta.cementLaborCost : 0) || 0);
+                        const cU = Number(meta.cementUnloadingPaidAmount || (meta.cementUnloadingPaid ? meta.cementUnloadingCost : 0) || 0);
+                        const rL = Number(meta.rodLaborPaidAmount || (meta.rodLaborPaid ? meta.rodLaborCost : 0) || 0);
+                        cashOutAfter += (cL + cU + rL);
+                      }
+                      if (!meta.isHistoricalShipping) {
+                        const sH = Number(meta.salesShippingPaidAmount || (meta.salesShippingPaid ? meta.shippingCost : 0) || 0);
+                        cashOutAfter += sH;
+                      }
+                    }
+                  }
+                });
+
+                expenses.forEach(e => {
+                  const d = safeParseDate(e.date || e.createdAt);
+                  if (!d) return;
+                  const expDateStr = format(d, 'yyyy-MM-dd');
+                  if (expDateStr <= selectedDateStr) return;
+
+                  const pMethod = (((e as any).paymentMethod || '') as string).toLowerCase();
+                  const isBankOrCheque = bankMethods.some(b => pMethod.includes(b)) || pMethod.includes('cheque') || pMethod.includes('check');
+                  if (!isBankOrCheque) {
+                    cashOutAfter += Number(e.amount || 0);
+                  }
+                });
+
+                closingEndCash = (totalCash || 0) - (cashInAfter - cashOutAfter);
+              }
+
               const openingCash = closingEndCash - netCashDifference;
 
               // Quantity summaries for Rod & Cement
@@ -2244,54 +2320,92 @@ function MasterReportsContent() {
                 : toBengaliDigits(selectedDateStr);
 
               // 1. Cash Balance and Cheque collection
+              // For historical dates, accurately roll back subsequent cash movements from the live totalCash balance
               const isToday = !salesStatementDate || salesStatementDate === format(new Date(), 'yyyy-MM-dd');
               let reportCashBalance = totalCash || 0;
 
               if (!isToday) {
-                let cumCashIn = 0;
-                let cumCashOut = 0;
+                const bankMethods = ['bank', 'banktobank', 'mobile_banking', 'mobile', 'bkash'];
+                let cashInAfter = 0;
+                let cashOutAfter = 0;
+
                 transactions.forEach(t => {
                   if (t.raw?.status === 'cancelled' || t.raw?.status === 'rejected' || t.raw?.status === 'draft') return;
-                  const d = safeParseDate(t.createdAt);
-                  if (!d || format(d, 'yyyy-MM-dd') > selectedDateStr) return;
                   if (t.raw?.notes?.includes('isHistoricalLedger')) return;
-                  
+                  const d = safeParseDate(t.createdAt);
+                  if (!d) return;
+                  const txDateStr = format(d, 'yyyy-MM-dd');
+                  if (txDateStr <= selectedDateStr) return; // Only process cash events that happened AFTER selectedDateStr
+
                   const tType = (t.type || '').toLowerCase();
                   const pMethod = ((t.paymentMethod || '') as string).toLowerCase();
-                  const pAmt = tType === 'sale_return' ? Number(t.paidAmount || 0) : Number(t.paidAmount || t.amount || 0);
+                  const isBank = bankMethods.some(b => pMethod.includes(b));
+                  const isCheque = pMethod.includes('cheque') || pMethod.includes('check');
+                  const isSplit = pMethod === 'split';
+                  const paid = Number(t.paidAmount || 0);
+
+                  let meta: any = {};
+                  try {
+                    if (t.raw?.notes?.startsWith('{')) meta = JSON.parse(t.raw.notes.split('\n')[0]);
+                  } catch {}
 
                   if (tType === 'sale' || tType === 'payment_in' || tType === 'loan_in' || tType === 'income') {
-                    if (pMethod === 'split') {
-                      let meta: any = {};
-                      try {
-                        if (t.raw?.notes?.startsWith('{')) meta = JSON.parse(t.raw.notes.split('\n')[0]);
-                      } catch {}
-                      const cPart = Number(meta.cashPaidAmount || meta.splitCashAmount || pAmt);
-                      cumCashIn += cPart;
+                    if (isSplit) {
+                      const cPart = Number(meta.cashPaidAmount || meta.splitCashAmount || paid);
+                      cashInAfter += cPart;
                       if (t.raw?.cheque_status === 'cleared') {
                         const qPart = Number(meta.chequePaidAmount || meta.splitChequeAmount || 0);
-                        cumCashIn += qPart;
+                        cashInAfter += qPart;
                       }
-                    } else if (pMethod.includes('cheque') || pMethod.includes('check')) {
-                      if (t.raw?.cheque_status === 'cleared') cumCashIn += pAmt;
-                    } else if (!pMethod.includes('bank') && !pMethod.includes('bkash')) {
-                      cumCashIn += pAmt;
+                    } else if (isCheque) {
+                      if (t.raw?.cheque_status === 'cleared') cashInAfter += paid;
+                    } else if (!isBank) {
+                      cashInAfter += paid;
                     }
-                  } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'expense' || tType === 'sale_return') {
-                    if (!pMethod.includes('cheque') && !pMethod.includes('bank') && !pMethod.includes('bkash')) {
-                      cumCashOut += pAmt;
+                  } else if (tType === 'purchase' || tType === 'payment_out' || tType === 'loan_out' || tType === 'sale_return') {
+                    if (!isBank && !isCheque) {
+                      cashOutAfter += paid;
+                    }
+                  }
+
+                  // Extra shipping & labor cash out from transaction notes
+                  if (meta) {
+                    if (tType === 'purchase') {
+                      if (meta.shippingPayer !== 'supplier') {
+                        cashOutAfter += Number(meta.shippingPaidAmount || (meta.shippingStatus === 'paid' ? meta.shippingCost : 0) || 0);
+                      }
+                      if (meta.laborPayer !== 'supplier') {
+                        cashOutAfter += Number(meta.laborPaidAmount || (meta.laborStatus === 'paid' ? meta.laborCost : 0) || 0);
+                      }
+                    } else if (tType === 'sale') {
+                      if (!meta.isHistoricalLabor) {
+                        const cL = Number(meta.cementLoadingPaidAmount || (meta.cementLoadingPaid ? meta.cementLaborCost : 0) || 0);
+                        const cU = Number(meta.cementUnloadingPaidAmount || (meta.cementUnloadingPaid ? meta.cementUnloadingCost : 0) || 0);
+                        const rL = Number(meta.rodLaborPaidAmount || (meta.rodLaborPaid ? meta.rodLaborCost : 0) || 0);
+                        cashOutAfter += (cL + cU + rL);
+                      }
+                      if (!meta.isHistoricalShipping) {
+                        const sH = Number(meta.salesShippingPaidAmount || (meta.salesShippingPaid ? meta.shippingCost : 0) || 0);
+                        cashOutAfter += sH;
+                      }
                     }
                   }
                 });
+
                 expenses.forEach(e => {
                   const d = safeParseDate(e.date || e.createdAt);
-                  if (!d || format(d, 'yyyy-MM-dd') > selectedDateStr) return;
+                  if (!d) return;
+                  const expDateStr = format(d, 'yyyy-MM-dd');
+                  if (expDateStr <= selectedDateStr) return;
+
                   const pMethod = (((e as any).paymentMethod || '') as string).toLowerCase();
-                  if (!pMethod.includes('bank') && !pMethod.includes('cheque') && !pMethod.includes('bkash')) {
-                    cumCashOut += Number(e.amount || 0);
+                  const isBankOrCheque = bankMethods.some(b => pMethod.includes(b)) || pMethod.includes('cheque') || pMethod.includes('check');
+                  if (!isBankOrCheque) {
+                    cashOutAfter += Number(e.amount || 0);
                   }
                 });
-                reportCashBalance = cumCashIn - cumCashOut;
+
+                reportCashBalance = (totalCash || 0) - (cashInAfter - cashOutAfter);
               }
 
               // Cheque collections on selected date (only inbound: sales, payment_in, income)
@@ -4352,11 +4466,21 @@ ${cementBlockLines.join('\n')}
 
             {/* 6. ব্যালেন্স শীট (100% Real Data & PDF Matched) */}
             {activeTab === 'balance_sheet' && (() => {
-              // Real data calculations
-              const rodStockVal = products.filter(p => p.category === 'রড').reduce((sum, p) => sum + (p.stock * p.buyPrice), 0);
-              const cementStockVal = products.filter(p => p.category === 'সিমেন্ট').reduce((sum, p) => sum + (p.stock * p.buyPrice), 0);
-              const ringStockVal = products.filter(p => p.category === 'রিং').reduce((sum, p) => sum + (p.stock * p.buyPrice), 0);
-              const otherStockVal = products.filter(p => !['রড', 'সিমেন্ট', 'রিং'].includes(p.category)).reduce((sum, p) => sum + (p.stock * p.buyPrice), 0);
+              // Categorization helpers
+              const isRod = (p: Product) => p.category === 'রড' || (p.category !== 'সিমেন্ট' && isRodProduct(p));
+              const isCement = (p: Product) => p.category === 'সিমেন্ট' || isCementProduct(p);
+              const isRing = (p: Product) => p.category === 'রিং' && !isRod(p) && !isCement(p);
+              const isOther = (p: Product) => !isRod(p) && !isCement(p) && !isRing(p);
+
+              // Real data calculations using Balance Sheet Khata effective rates
+              const rodStockVal = products.filter(isRod).reduce((sum, p) => sum + ((p.stock || 0) * getBsEffectiveRate(p)), 0);
+              const cementStockVal = products.filter(isCement).reduce((sum, p) => sum + ((p.stock || 0) * getBsEffectiveRate(p)), 0);
+              const ringStockVal = products.filter(isRing).reduce((sum, p) => sum + ((p.stock || 0) * getBsEffectiveRate(p)), 0);
+              const otherStockVal = products.filter(isOther).reduce((sum, p) => sum + ((p.stock || 0) * getBsEffectiveRate(p)), 0);
+
+              const hasCustomRodRates = products.some(p => isRod(p) && balanceSheetCustomRates[p.id] !== undefined && balanceSheetCustomRates[p.id] > 0);
+              const hasCustomCementRates = products.some(p => isCement(p) && balanceSheetCustomRates[p.id] !== undefined && balanceSheetCustomRates[p.id] > 0);
+              const totalCustomCount = Object.keys(balanceSheetCustomRates).length;
 
               const totalBankBal = banks.filter(b => (b.balance || 0) > 0).reduce((sum, b) => sum + (b.balance || 0), 0);
               const totalCustDue = customers.reduce((sum, c) => sum + (c.totalDue || 0), 0);
@@ -4420,6 +4544,33 @@ ${cementBlockLines.join('\n')}
                       >
                         <Settings2 className="w-3.5 h-3.5 text-blue-600" />
                         মূলধন পরিবর্তন
+                      </Button>
+
+                      {/* Stock Valuation Khata Rate Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const initialTemp: Record<string, string> = {};
+                          products.forEach(p => {
+                            if (balanceSheetCustomRates[p.id] !== undefined && balanceSheetCustomRates[p.id] > 0) {
+                              initialTemp[p.id] = String(balanceSheetCustomRates[p.id]);
+                            }
+                          });
+                          setTempCustomRates(initialTemp);
+                          setStockRateSearchQuery('');
+                          setStockRateCatFilter('all');
+                          setIsEditingStockRates(true);
+                        }}
+                        className={cn(
+                          "rounded-xl font-bold text-xs gap-1.5 shadow-xs transition-colors",
+                          totalCustomCount > 0 
+                            ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800" 
+                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
+                        খাতার স্টক রেট {totalCustomCount > 0 ? `(${toBengaliDigits(String(totalCustomCount))}টি সেট)` : ''}
                       </Button>
 
                       {/* Print Button */}
@@ -4592,6 +4743,25 @@ ${cementBlockLines.join('\n')}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                               রড স্টক -
+                              {hasCustomRodRates && (
+                                <span 
+                                  onClick={() => {
+                                    const initialTemp: Record<string, string> = {};
+                                    products.forEach(p => {
+                                      if (balanceSheetCustomRates[p.id] !== undefined && balanceSheetCustomRates[p.id] > 0) {
+                                        initialTemp[p.id] = String(balanceSheetCustomRates[p.id]);
+                                      }
+                                    });
+                                    setTempCustomRates(initialTemp);
+                                    setStockRateCatFilter('rod');
+                                    setIsEditingStockRates(true);
+                                  }}
+                                  className="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-md cursor-pointer print:hidden transition-colors"
+                                  title="রডের খাতার রেট পরিবর্তন করুন"
+                                >
+                                  খাতার রেট <SlidersHorizontal className="w-2.5 h-2.5" />
+                                </span>
+                              )}
                             </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
                               {formatBnNumber(rodStockVal)}
@@ -4602,6 +4772,25 @@ ${cementBlockLines.join('\n')}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                               সিমেন্ট স্টক -
+                              {hasCustomCementRates && (
+                                <span 
+                                  onClick={() => {
+                                    const initialTemp: Record<string, string> = {};
+                                    products.forEach(p => {
+                                      if (balanceSheetCustomRates[p.id] !== undefined && balanceSheetCustomRates[p.id] > 0) {
+                                        initialTemp[p.id] = String(balanceSheetCustomRates[p.id]);
+                                      }
+                                    });
+                                    setTempCustomRates(initialTemp);
+                                    setStockRateCatFilter('cement');
+                                    setIsEditingStockRates(true);
+                                  }}
+                                  className="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-md cursor-pointer print:hidden transition-colors"
+                                  title="সিমেন্টের খাতার রেট পরিবর্তন করুন"
+                                >
+                                  খাতার রেট <SlidersHorizontal className="w-2.5 h-2.5" />
+                                </span>
+                              )}
                             </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
                               {formatBnNumber(cementStockVal)}
@@ -5287,6 +5476,9 @@ ${cementBlockLines.join('\n')}
                           onClick={() => {
                             const val = Number(tempCapitalInput) || 0;
                             setInitialCapital(val);
+                            if (typeof window !== 'undefined') {
+                              localStorage.setItem('dokan_balance_sheet_initial_capital', String(val));
+                            }
                             setIsEditingCapital(false);
                             toast.success('বিনিয়োগ মূলধন সফলভাবে আপডেট করা হয়েছে');
                           }} 
@@ -5294,6 +5486,415 @@ ${cementBlockLines.join('\n')}
                         >
                           সংরক্ষণ করুন
                         </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Stock Valuation Khata Rate Dialog */}
+                  <Dialog open={isEditingStockRates} onOpenChange={setIsEditingStockRates}>
+                    <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col p-6 rounded-2xl font-bengali overflow-hidden">
+                      <DialogHeader className="shrink-0 pb-3 border-b border-slate-100">
+                        <DialogTitle className="text-lg font-black text-slate-900 flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2">
+                            <SlidersHorizontal className="w-5 h-5 text-emerald-600" />
+                            ব্যালেন্স শিট স্টক রেট (খাতার হিসাব) নির্ধারণ
+                          </span>
+                          {Object.keys(tempCustomRates).length > 0 && (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+                              {toBengaliDigits(String(Object.keys(tempCustomRates).length))}টি পণ্যের খাতার রেট দেওয়া আছে
+                            </span>
+                          )}
+                        </DialogTitle>
+                        <p className="text-xs text-slate-500 font-medium mt-1">
+                          এখানে নির্ধারিত রেট <span className="font-bold text-slate-700 underline">শুধুমাত্র ব্যালেন্স শিটের সম্পদ ও লাভ-ক্ষতি</span> গণনায় ব্যবহৃত হবে। দোকানের মূল ইনভেন্টরি, কেনাবেচা বা ক্রয়মূল্য সম্পূর্ণ অপরিবর্তিত থাকবে।
+                        </p>
+                      </DialogHeader>
+
+                      <div className="flex-1 overflow-y-auto space-y-4 py-3 pr-1">
+                        {/* Quick Bulk Setter Box */}
+                        <div className="bg-gradient-to-r from-emerald-50/80 via-teal-50/50 to-slate-50 border border-emerald-200/80 rounded-xl p-3.5">
+                          <p className="text-xs font-black text-emerald-950 flex items-center gap-1.5 mb-2.5">
+                            <Sparkles className="w-4 h-4 text-emerald-600" />
+                            এক ক্লিকে ক্যাটাগরিভিত্তিক সব পণ্যে খাতার রেট বসান:
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Rod Bulk Setter */}
+                            <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+                              <span className="text-xs font-bold text-slate-800 whitespace-nowrap min-w-[70px]">
+                                রড রেট (৳/কেজি):
+                              </span>
+                              <Input
+                                type="number"
+                                placeholder="যেমন: ৯২"
+                                value={bulkRodRate}
+                                onChange={(e) => setBulkRodRate(e.target.value)}
+                                className="h-8 text-xs font-bold bg-slate-50 border-slate-200 rounded-md"
+                              />
+                              <Button
+                                size="sm"
+                                type="button"
+                                onClick={() => {
+                                  const r = Number(bulkRodRate);
+                                  if (!bulkRodRate || isNaN(r) || r <= 0) {
+                                    toast.error('সঠিক রড রেট লিখুন');
+                                    return;
+                                  }
+                                  setTempCustomRates(prev => {
+                                    const next = { ...prev };
+                                    products.filter(isRod).forEach(p => {
+                                      next[p.id] = String(r);
+                                    });
+                                    return next;
+                                  });
+                                  toast.success(`সব রড পণ্যে ${toBengaliDigits(String(r))} ৳ রেট বসানো হয়েছে`);
+                                }}
+                                className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-md shrink-0 shadow-2xs"
+                              >
+                                সব রডে বসান
+                              </Button>
+                            </div>
+
+                            {/* Cement Bulk Setter */}
+                            <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+                              <span className="text-xs font-bold text-slate-800 whitespace-nowrap min-w-[70px]">
+                                সিমেন্ট (৳/ব্যাগ):
+                              </span>
+                              <Input
+                                type="number"
+                                placeholder="যেমন: ৫৪০"
+                                value={bulkCementRate}
+                                onChange={(e) => setBulkCementRate(e.target.value)}
+                                className="h-8 text-xs font-bold bg-slate-50 border-slate-200 rounded-md"
+                              />
+                              <Button
+                                size="sm"
+                                type="button"
+                                onClick={() => {
+                                  const r = Number(bulkCementRate);
+                                  if (!bulkCementRate || isNaN(r) || r <= 0) {
+                                    toast.error('সঠিক সিমেন্ট রেট লিখুন');
+                                    return;
+                                  }
+                                  setTempCustomRates(prev => {
+                                    const next = { ...prev };
+                                    products.filter(isCement).forEach(p => {
+                                      next[p.id] = String(r);
+                                    });
+                                    return next;
+                                  });
+                                  toast.success(`সব সিমেন্টে ${toBengaliDigits(String(r))} ৳ রেট বসানো হয়েছে`);
+                                }}
+                                className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-md shrink-0 shadow-2xs"
+                              >
+                                সব সিমেন্টে বসান
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Summary Live Comparison Cards */}
+                        {(() => {
+                          const sysTotal = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.buyPrice || 0)), 0);
+                          const khataTotal = products.reduce((sum, p) => {
+                            const customVal = tempCustomRates[p.id];
+                            const effRate = customVal !== undefined && customVal !== '' && !isNaN(Number(customVal)) && Number(customVal) > 0 
+                              ? Number(customVal) 
+                              : (p.buyPrice || 0);
+                            return sum + ((p.stock || 0) * effRate);
+                          }, 0);
+                          const diff = khataTotal - sysTotal;
+
+                          return (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-center">
+                              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                                <p className="text-[11px] font-bold text-slate-500">সিস্টেম গড় মূল্যে মোট স্টক</p>
+                                <p className="text-base font-black text-slate-800 mt-0.5">{formatBnCurrency(sysTotal)}</p>
+                              </div>
+                              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-2.5">
+                                <p className="text-[11px] font-bold text-emerald-800">খাতার রেটে ব্যালেন্স শিট স্টক</p>
+                                <p className="text-base font-black text-emerald-700 mt-0.5">{formatBnCurrency(khataTotal)}</p>
+                              </div>
+                              <div className={cn(
+                                "border rounded-xl p-2.5",
+                                diff >= 0 ? "bg-teal-50/80 border-teal-200 text-teal-900" : "bg-rose-50/80 border-rose-200 text-rose-900"
+                              )}>
+                                <p className="text-[11px] font-bold">ব্যালেন্স শিট পার্থক্য (Adjustment)</p>
+                                <p className="text-base font-black mt-0.5">
+                                  {diff > 0 ? '+' : ''}{formatBnCurrency(diff)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Filters and Search Toolbar */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                          {/* Search */}
+                          <div className="relative flex-1 max-w-sm">
+                            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                            <Input
+                              type="text"
+                              placeholder="পণ্যের নাম দিয়ে খুঁজুন..."
+                              value={stockRateSearchQuery}
+                              onChange={(e) => setStockRateSearchQuery(e.target.value)}
+                              className="pl-9 h-9 text-xs rounded-xl border-slate-200 bg-white"
+                            />
+                            {stockRateSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setStockRateSearchQuery('')}
+                                className="absolute right-2.5 top-2.5 text-xs text-slate-400 hover:text-slate-600"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Category Pills & Stock Toggle */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-[11px] font-bold">
+                              <button
+                                type="button"
+                                onClick={() => setStockRateCatFilter('all')}
+                                className={cn("px-2.5 py-1 rounded-lg transition-colors", stockRateCatFilter === 'all' ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+                              >
+                                সকল ({products.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStockRateCatFilter('rod')}
+                                className={cn("px-2.5 py-1 rounded-lg transition-colors", stockRateCatFilter === 'rod' ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+                              >
+                                রড ({products.filter(isRod).length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStockRateCatFilter('cement')}
+                                className={cn("px-2.5 py-1 rounded-lg transition-colors", stockRateCatFilter === 'cement' ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+                              >
+                                সিমেন্ট ({products.filter(isCement).length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStockRateCatFilter('ring')}
+                                className={cn("px-2.5 py-1 rounded-lg transition-colors", stockRateCatFilter === 'ring' ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+                              >
+                                রিং
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStockRateCatFilter('custom_only')}
+                                className={cn("px-2.5 py-1 rounded-lg transition-colors", stockRateCatFilter === 'custom_only' ? "bg-white text-emerald-800 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+                              >
+                                খাতার রেট দেওয়া ({Object.keys(tempCustomRates).length})
+                              </button>
+                            </div>
+
+                            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={stockRateOnlyInStock}
+                                onChange={(e) => setStockRateOnlyInStock(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              />
+                              শুধু স্টকে থাকা (Stock &gt; 0)
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Product Rates Table */}
+                        {(() => {
+                          const filtered = products.filter(p => {
+                            if (stockRateOnlyInStock && (p.stock || 0) <= 0) return false;
+                            if (stockRateCatFilter === 'rod' && !isRod(p)) return false;
+                            if (stockRateCatFilter === 'cement' && !isCement(p)) return false;
+                            if (stockRateCatFilter === 'ring' && !isRing(p)) return false;
+                            if (stockRateCatFilter === 'other' && !isOther(p)) return false;
+                            if (stockRateCatFilter === 'custom_only') {
+                              const v = tempCustomRates[p.id];
+                              if (!v || v === '' || isNaN(Number(v)) || Number(v) <= 0) return false;
+                            }
+                            if (stockRateSearchQuery.trim()) {
+                              const q = stockRateSearchQuery.toLowerCase();
+                              const matchName = (p.name || '').toLowerCase().includes(q);
+                              const matchBrand = (p.brand || '').toLowerCase().includes(q);
+                              const matchCat = (p.category || '').toLowerCase().includes(q);
+                              if (!matchName && !matchBrand && !matchCat) return false;
+                            }
+                            return true;
+                          });
+
+                          return (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                              <div className="max-h-[380px] overflow-y-auto">
+                                <table className="w-full text-left border-collapse text-xs">
+                                  <thead className="bg-slate-100/80 sticky top-0 z-10 text-slate-700 font-bold border-b border-slate-200">
+                                    <tr>
+                                      <th className="p-2.5">পণ্যের নাম ও বিবরণ</th>
+                                      <th className="p-2.5 text-center">বর্তমান স্টক</th>
+                                      <th className="p-2.5 text-right">সিস্টেম গড় ক্রয়মূল্য</th>
+                                      <th className="p-2.5 text-center w-[160px]">খাতার রেট (ব্যালেন্স শিট)</th>
+                                      <th className="p-2.5 text-right">মোট খাতার স্টক মূল্য</th>
+                                      <th className="p-2.5 text-center w-[50px]">রিসেট</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {filtered.length === 0 ? (
+                                      <tr>
+                                        <td colSpan={6} className="text-center py-8 text-slate-400 font-semibold text-xs">
+                                          কোনো পণ্য পাওয়া যায়নি
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      filtered.map(p => {
+                                        const customVal = tempCustomRates[p.id];
+                                        const hasCustom = customVal !== undefined && customVal !== '' && !isNaN(Number(customVal)) && Number(customVal) > 0;
+                                        const effRate = hasCustom ? Number(customVal) : (p.buyPrice || 0);
+                                        const rowTotal = (p.stock || 0) * effRate;
+
+                                        return (
+                                          <tr key={p.id} className={cn("hover:bg-slate-50/70 transition-colors", hasCustom && "bg-emerald-50/30")}>
+                                            <td className="p-2.5">
+                                              <div className="font-bold text-slate-800">{fixMiliName(p.name)}</div>
+                                              <div className="flex items-center gap-1.5 mt-0.5">
+                                                <span className={cn(
+                                                  "text-[10px] font-semibold px-1.5 py-0.2 rounded",
+                                                  isRod(p) ? "bg-amber-100 text-amber-800" : isCement(p) ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"
+                                                )}>
+                                                  {isRod(p) ? 'রড' : isCement(p) ? 'সিমেন্ট' : p.category}
+                                                </span>
+                                                {p.brand && <span className="text-[10px] text-slate-400">({p.brand})</span>}
+                                              </div>
+                                            </td>
+                                            <td className="p-2.5 text-center font-bold text-slate-700">
+                                              {toBengaliDigits(String(p.stock))} {p.unit}
+                                            </td>
+                                            <td className="p-2.5 text-right font-semibold text-slate-500">
+                                              ৳{toBengaliDigits(String(p.buyPrice))}
+                                            </td>
+                                            <td className="p-2.5 text-center">
+                                              <div className="relative inline-block w-full max-w-[140px]">
+                                                <Input
+                                                  type="number"
+                                                  placeholder={String(p.buyPrice || 0)}
+                                                  value={tempCustomRates[p.id] ?? ''}
+                                                  onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setTempCustomRates(prev => {
+                                                      const next = { ...prev };
+                                                      if (val === '') {
+                                                        delete next[p.id];
+                                                      } else {
+                                                        next[p.id] = val;
+                                                      }
+                                                      return next;
+                                                    });
+                                                  }}
+                                                  className={cn(
+                                                    "h-8 text-xs font-bold text-right pr-6 rounded-lg",
+                                                    hasCustom
+                                                      ? "border-emerald-500 bg-emerald-50/80 text-emerald-950 ring-1 ring-emerald-500"
+                                                      : "border-slate-300 bg-white text-slate-800"
+                                                  )}
+                                                />
+                                                <span className="absolute right-2 top-2 text-[11px] text-slate-400 font-bold pointer-events-none">
+                                                  ৳
+                                                </span>
+                                              </div>
+                                            </td>
+                                            <td className="p-2.5 text-right font-bold text-slate-800">
+                                              {formatBnNumber(rowTotal)}
+                                              {hasCustom && (
+                                                <span className="block text-[10px] text-emerald-600 font-semibold">
+                                                  (খাতার রেট)
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="p-2.5 text-center">
+                                              {hasCustom ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setTempCustomRates(prev => {
+                                                      const next = { ...prev };
+                                                      delete next[p.id];
+                                                      return next;
+                                                    });
+                                                  }}
+                                                  title="সিস্টেম গড় খরচে ফিরিয়ে নিন"
+                                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                                >
+                                                  <RotateCcw className="w-3.5 h-3.5" />
+                                                </button>
+                                              ) : (
+                                                <span className="text-slate-300">-</span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <DialogFooter className="shrink-0 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            if (window.confirm('আপনি কি সব পণ্যের খাতার রেট মুছে দিয়ে সিস্টেম ক্রয়মূল্যে ফিরিয়ে নিতে চান?')) {
+                              setTempCustomRates({});
+                              setBalanceSheetCustomRates({});
+                              if (typeof window !== 'undefined') {
+                                localStorage.removeItem('dokan_balance_sheet_custom_rates');
+                              }
+                              setIsEditingStockRates(false);
+                              toast.success('সব পণ্যের স্টক রেট সিস্টেম ক্রয়মূল্যে রিসেট করা হয়েছে');
+                            }
+                          }}
+                          className="border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl gap-1.5"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          সব রিসেট করুন (সিস্টেম গড় খরচ)
+                        </Button>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsEditingStockRates(false)}
+                            className="rounded-xl font-bold text-xs"
+                          >
+                            বাতিল
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              const cleanedRates: Record<string, number> = {};
+                              Object.entries(tempCustomRates).forEach(([id, val]) => {
+                                const num = Number(val);
+                                if (!isNaN(num) && num > 0) {
+                                  cleanedRates[id] = num;
+                                }
+                              });
+                              setBalanceSheetCustomRates(cleanedRates);
+                              if (typeof window !== 'undefined') {
+                                localStorage.setItem('dokan_balance_sheet_custom_rates', JSON.stringify(cleanedRates));
+                              }
+                              setIsEditingStockRates(false);
+                              toast.success('ব্যালেন্স শিট খাতার স্টক রেট সফলভাবে সংরক্ষণ করা হয়েছে');
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-xs gap-1.5"
+                          >
+                            <Check className="w-4 h-4" />
+                            সংরক্ষণ করুন
+                          </Button>
+                        </div>
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
