@@ -372,6 +372,14 @@ export default function Dashboard() {
       return d && format(d, 'yyyy-MM-dd') === todayStr;
     });
 
+    // Filter today's returns (kept separate, NOT deducted from today's fresh sales)
+    const dayReturns = allTransactions.filter(t => {
+      if (t.status === 'cancelled' || t.status === 'rejected' || t.status === 'draft') return false;
+      const d = safeParseDate(t.created_at || t.createdAt);
+      const tType = (t.transaction_type || t.type || '').toLowerCase();
+      return d && format(d, 'yyyy-MM-dd') === todayStr && tType === 'sale_return';
+    });
+
     // Cheques received today (Only inbound collections: sales, payment_in, income - no double counting)
     let dayChequeAmount = 0;
     allTransactions.forEach(t => {
@@ -416,6 +424,15 @@ export default function Dashboard() {
       (p.items || []).forEach(i => {
         if (isCementProduct(i)) {
           cementBoughtBags += Number(i.quantity) || 0;
+        }
+      });
+    });
+
+    let dayCementReturnBags = 0;
+    dayReturns.forEach(r => {
+      (r.items || []).forEach((i: any) => {
+        if (isCementProduct(i)) {
+          dayCementReturnBags += Number(i.quantity) || 0;
         }
       });
     });
@@ -466,6 +483,17 @@ export default function Dashboard() {
       });
     });
 
+    let dayRodReturnKg = 0;
+    dayReturns.forEach(r => {
+      (r.items || []).forEach((i: any) => {
+        if (isRodProduct(i)) {
+          const u = (i.unit || '').toLowerCase();
+          const qtyKg = u.includes('টন') ? (Number(i.quantity) || 0) * 1000 : (Number(i.quantity) || 0);
+          dayRodReturnKg += qtyKg;
+        }
+      });
+    });
+
     const rodProducts = products.filter(p => isRodProduct(p));
     const totalRodStockKg = rodProducts.reduce((sum, p) => {
       const u = (p.unit || '').toLowerCase();
@@ -482,6 +510,7 @@ export default function Dashboard() {
     const cementBrandLines = realCementList.map(b => `${b.name}= ${formatQtyOrZero(b.stock)} ব্যাগ`);
     const cementBlockLines = [
       `সিমেন্ট বিক্রয় = ${formatQtyOrZero(cementSoldBags)} ব্যাগ`,
+      ...(dayCementReturnBags > 0 ? [`সিমেন্ট ফেরত = ${formatQtyOrZero(dayCementReturnBags)} ব্যাগ`] : []),
       `সিমেন্ট প্রাপ্তি = ${formatQtyOrZero(cementBoughtBags)} ব্যাগ`,
       `সিমেন্ট সরাসরি= ${formatQtyOrZero(cementDirectBags)} ব্যাগ`,
       `সিমেন্ট স্টক= ${formatQtyOrZero(totalCementStockBags)} ব্যাগ`,
@@ -501,7 +530,7 @@ ${cementBlockLines.join('\n')}
        ===== রড=====
 
 রড বিক্রয় = ${formatRodVal(rodSoldKg)}
-রড প্রাপ্তি = ${formatRodVal(rodBoughtKg, true)}
+${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, true)}\n` : ''}রড প্রাপ্তি = ${formatRodVal(rodBoughtKg, true)}
 রড সরাসরি= ${formatRodVal(rodDirectKg, true)}
 রড স্টক = ${formatRodVal(totalRodStockKg, true)}`;
 

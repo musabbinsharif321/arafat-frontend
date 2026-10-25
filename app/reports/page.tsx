@@ -1919,7 +1919,9 @@ function MasterReportsContent() {
                 });
               });
 
-              // Subtract today's returns for net movement
+              // Today's returns for item movement tracking (kept separate, NOT deducted from today's fresh sales)
+              let rodReturnKg = 0;
+              let cementReturnBags = 0;
               saleReturns.filter(r => {
                 const d = safeParseDate(r.createdAt);
                 return d ? format(d, 'yyyy-MM-dd') === selectedDateStr : false;
@@ -1928,10 +1930,10 @@ function MasterReportsContent() {
                   const unitLower = (i.unit || '').toLowerCase();
                   if (isRodProduct(i)) {
                     const qKg = unitLower.includes('টন') ? Number(i.quantity) * 1000 : Number(i.quantity);
-                    rodSoldKg = Math.max(0, rodSoldKg - qKg);
+                    rodReturnKg += qKg;
                   }
                   if (isCementProduct(i)) {
-                    cementSoldBags = Math.max(0, cementSoldBags - Number(i.quantity));
+                    cementReturnBags += Number(i.quantity);
                   }
                 });
               });
@@ -2139,10 +2141,16 @@ function MasterReportsContent() {
                       <div className="p-4 rounded-2xl bg-orange-50/70 border border-orange-200 space-y-1">
                         <p className="text-xs font-bold text-orange-800">রড বিক্রয় (Rod Sold)</p>
                         <p className="text-xl font-black text-orange-600">{formatDualStock(rodSoldKg, 'কেজি', 'রড').main}</p>
+                        {rodReturnKg > 0 && (
+                          <p className="text-[11px] font-bold text-rose-600">ফেরত: {formatDualStock(rodReturnKg, 'কেজি', 'রড').main}</p>
+                        )}
                       </div>
                       <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 space-y-1">
                         <p className="text-xs font-bold text-blue-800">সিমেন্ট বিক্রয় (Cement Sold)</p>
                         <p className="text-xl font-black text-blue-600">{toBnNum(cementSoldBags)} বস্তা</p>
+                        {cementReturnBags > 0 && (
+                          <p className="text-[11px] font-bold text-rose-600">ফেরত: {toBnNum(cementReturnBags)} বস্তা</p>
+                        )}
                       </div>
                       <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-1">
                         <p className="text-xs font-bold text-emerald-800">রড আগমন/ক্রয় (Rod Purchase)</p>
@@ -2231,6 +2239,7 @@ function MasterReportsContent() {
                             <tr>
                               <th className="p-1.5 border-r border-black">পণ্যের ধরন</th>
                               <th className="p-1.5 border-r border-black">আজকের বিক্রি</th>
+                              <th className="p-1.5 border-r border-black">আজকের ফেরত</th>
                               <th className="p-1.5">আজকের ক্রয়/আগমন</th>
                             </tr>
                           </thead>
@@ -2238,11 +2247,13 @@ function MasterReportsContent() {
                             <tr className="border-b border-black">
                               <td className="p-1.5 font-bold border-r border-black">রড (Rod & Ring)</td>
                               <td className="p-1.5 border-r border-black">{formatDualStock(rodSoldKg, 'কেজি', 'রড').main}</td>
+                              <td className="p-1.5 border-r border-black">{rodReturnKg > 0 ? formatDualStock(rodReturnKg, 'কেজি', 'রড').main : '০ কেজি'}</td>
                               <td className="p-1.5">{formatDualStock(rodBoughtKg, 'কেজি', 'রড').main}</td>
                             </tr>
                             <tr>
                               <td className="p-1.5 font-bold border-r border-black">সিমেন্ট (Cement)</td>
                               <td className="p-1.5 border-r border-black">{toBnNum(cementSoldBags)} বস্তা</td>
+                              <td className="p-1.5 border-r border-black">{cementReturnBags > 0 ? `${toBnNum(cementReturnBags)} বস্তা` : '০ বস্তা'}</td>
                               <td className="p-1.5">{toBnNum(cementBoughtBags)} বস্তা</td>
                             </tr>
                           </tbody>
@@ -2531,7 +2542,7 @@ function MasterReportsContent() {
                 });
               });
 
-              // Deduct today's returned cement bags
+              // Today's returned cement bags (kept separate, NOT deducted from today's fresh sales)
               let dayCementReturnBags = 0;
               dayAllSaleReturns.forEach(r => {
                 (r.items || []).forEach(i => {
@@ -2540,7 +2551,6 @@ function MasterReportsContent() {
                   }
                 });
               });
-              cementSoldBags = Math.max(0, cementSoldBags - dayCementReturnBags);
 
               let cementBoughtBags = 0;
               dayAllPurchases.forEach(p => {
@@ -2624,7 +2634,7 @@ function MasterReportsContent() {
                 });
               });
 
-              // Deduct today's returned rod kg
+              // Today's returned rod kg (kept separate, NOT deducted from today's fresh sales)
               let dayRodReturnKg = 0;
               dayAllSaleReturns.forEach(r => {
                 (r.items || []).forEach(i => {
@@ -2635,7 +2645,6 @@ function MasterReportsContent() {
                   }
                 });
               });
-              rodSoldKg = Math.max(0, rodSoldKg - dayRodReturnKg);
 
               let rodBoughtKg = 0;
               dayAllPurchases.forEach(p => {
@@ -2666,6 +2675,7 @@ function MasterReportsContent() {
 
               const cementBlockLines = [
                 `সিমেন্ট বিক্রয় = ${formatQtyOrZero(cementSoldBags)} ব্যাগ`,
+                ...(dayCementReturnBags > 0 ? [`সিমেন্ট ফেরত = ${formatQtyOrZero(dayCementReturnBags)} ব্যাগ`] : []),
                 `সিমেন্ট প্রাপ্তি = ${formatQtyOrZero(cementBoughtBags)} ব্যাগ`,
                 `সিমেন্ট সরাসরি= ${formatQtyOrZero(cementDirectBags)} ব্যাগ`,
                 `সিমেন্ট স্টক= ${formatQtyOrZero(totalCementStockBags)} ব্যাগ`,
@@ -2686,7 +2696,7 @@ ${cementBlockLines.join('\n')}
        ===== রড=====
 
 রড বিক্রয় = ${formatRodSold(rodSoldKg)}
-রড প্রাপ্তি = ${formatRodBought(rodBoughtKg)}
+${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n` : ''}রড প্রাপ্তি = ${formatRodBought(rodBoughtKg)}
 রড সরাসরি= ${formatRodDirect(rodDirectKg)}
 রড স্টক = ${formatRodStock(totalRodStockKg)}`;
 
