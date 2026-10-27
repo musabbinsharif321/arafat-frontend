@@ -18,6 +18,7 @@ import {
 import { api, UserData } from '@/lib/api';
 import { useAuth } from '@/lib/authContext';
 import { cn } from '@/lib/utils';
+import { toEnglishDigits } from '@/lib/bengaliUtils';
 
 export default function SettingsPage() {
   const { user: currentUser, token, isAdmin, refreshUser } = useAuth();
@@ -101,7 +102,7 @@ export default function SettingsPage() {
       setIsUpdatingProfile(true);
       const payload: any = {
         full_name: profileName.trim(),
-        phone: profilePhone.trim(),
+        phone: toEnglishDigits(profilePhone).trim(),
         email: profileEmail.trim(),
         avatar: profileAvatar || ''
       };
@@ -150,11 +151,12 @@ export default function SettingsPage() {
   const handleSaveWaivePin = () => {
     try {
       setIsSavingWaivePin(true);
-      const pinVal = (waivePin || '1234').trim();
+      const pinVal = toEnglishDigits(waivePin || '1234').trim();
       if (typeof window !== 'undefined') {
         localStorage.setItem('waive_pin', pinVal);
         window.dispatchEvent(new CustomEvent('waivePinUpdated', { detail: pinVal }));
       }
+      setWaivePin(pinVal);
       toast.success('বাকি মওকুফ সিকিউরিটি পাসওয়ার্ড সফলভাবে সংরক্ষিত হয়েছে!');
     } catch (err) {
       toast.error('মওকুফ পাসওয়ার্ড সংরক্ষণ করা সম্ভব হয়নি');
@@ -166,12 +168,13 @@ export default function SettingsPage() {
   const handleSaveCommissionPin = async () => {
     try {
       setIsSavingPin(true);
-      const pinVal = (commissionPin || '1234').trim();
+      const pinVal = toEnglishDigits(commissionPin || '1234').trim();
       if (typeof window !== 'undefined') {
         localStorage.setItem('commission_pin', pinVal);
         window.dispatchEvent(new CustomEvent('commissionPinUpdated', { detail: pinVal }));
       }
       await api.settings.update(1, { commission_pin: pinVal });
+      setCommissionPin(pinVal);
       toast.success('কমিশন অনুমোদন পাসওয়ার্ড সফলভাবে সংরক্ষিত হয়েছে!');
     } catch (err) {
       toast.error('কমিশন পাসওয়ার্ড সংরক্ষণ করা সম্ভব হয়নি');
@@ -197,6 +200,7 @@ export default function SettingsPage() {
     is_active: true
   });
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+  const [showModalPassword, setShowModalPassword] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const modalFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -248,6 +252,7 @@ export default function SettingsPage() {
 
   const handleOpenAddUser = () => {
     setEditingUser(null);
+    setShowModalPassword(false);
     setFormData({
       username: '',
       password: '',
@@ -263,6 +268,7 @@ export default function SettingsPage() {
 
   const handleOpenEditUser = (u: UserData) => {
     setEditingUser(u);
+    setShowModalPassword(false);
     setFormData({
       username: u.username || '',
       password: '',
@@ -330,7 +336,7 @@ export default function SettingsPage() {
         const payload: any = {
           username: cleanUsername || cleanEmail.split('@')[0],
           full_name: formData.full_name.trim(),
-          phone: formData.phone.trim(),
+          phone: toEnglishDigits(formData.phone).trim(),
           email: cleanEmail,
           role: formData.role,
           avatar: formData.avatar,
@@ -346,7 +352,7 @@ export default function SettingsPage() {
           username: cleanUsername || cleanEmail.split('@')[0],
           password: formData.password.trim(),
           full_name: formData.full_name.trim(),
-          phone: formData.phone.trim(),
+          phone: toEnglishDigits(formData.phone).trim(),
           email: cleanEmail,
           role: formData.role,
           avatar: formData.avatar,
@@ -417,7 +423,7 @@ export default function SettingsPage() {
 
   return (
     <Shell>
-      <div className="max-w-5xl mx-auto space-y-8 font-bengali pb-12">
+      <div className="max-w-5xl mx-auto space-y-8 font-bengali pb-12" data-no-bangla="true">
         <div>
           <h2 className="text-3xl font-black text-slate-900 flex items-center gap-2.5">
             <SettingsIcon className="w-7 h-7 text-indigo-600" />
@@ -536,7 +542,8 @@ export default function SettingsPage() {
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
                     placeholder="আপনার পূর্ণ নাম দিন"
-                    className="font-bold rounded-xl"
+                    data-no-bangla="true"
+                    className="font-bold rounded-xl no-bangla"
                   />
                 </div>
 
@@ -548,8 +555,9 @@ export default function SettingsPage() {
                   <Input
                     value={profilePhone}
                     onChange={(e) => setProfilePhone(e.target.value)}
-                    placeholder="০১৭১২-XXXXXX"
-                    className="font-bold rounded-xl font-mono text-xs"
+                    placeholder="01712-XXXXXX"
+                    data-no-bangla="true"
+                    className="font-bold rounded-xl font-mono text-xs no-bangla"
                   />
                 </div>
 
@@ -563,7 +571,9 @@ export default function SettingsPage() {
                     value={profileEmail}
                     onChange={(e) => setProfileEmail(e.target.value)}
                     placeholder="example@gmail.com"
-                    className="font-bold rounded-xl font-mono text-xs"
+                    data-no-bangla="true"
+                    name="email"
+                    className="font-bold rounded-xl font-mono text-xs no-bangla"
                   />
                 </div>
 
@@ -575,7 +585,8 @@ export default function SettingsPage() {
                   <Input
                     value={currentUser?.username || ''}
                     disabled
-                    className="font-bold rounded-xl font-mono text-xs bg-slate-100 text-slate-600 cursor-not-allowed"
+                    data-no-bangla="true"
+                    className="font-bold rounded-xl font-mono text-xs bg-slate-100 text-slate-600 cursor-not-allowed no-bangla"
                   />
                 </div>
               </div>
@@ -585,7 +596,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <Label className="font-black text-xs text-amber-950 flex items-center gap-1.5">
                     <KeyRound className="w-4 h-4 text-amber-600" />
-                    লগইন পাসওয়ার্ড পরিবর্তন (ঐচ্ছিক)
+                    লগইন পাসওয়ার্ড পরিবর্তন (English Password)
                   </Label>
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
                     পাসওয়ার্ড না বদলালে খালি রাখুন
@@ -594,19 +605,26 @@ export default function SettingsPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   <div className="space-y-1.5">
-                    <Label className="font-bold text-xs text-slate-700">নতুন পাসওয়ার্ড</Label>
+                    <Label className="font-bold text-xs text-slate-700 flex items-center justify-between">
+                      <span>নতুন পাসওয়ার্ড (New Password)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
+                    </Label>
                     <div className="relative">
                       <Input
                         type={showProfilePassword ? "text" : "password"}
                         value={profileNewPassword}
                         onChange={(e) => setProfileNewPassword(e.target.value)}
                         placeholder="নতুন পাসওয়ার্ড দিন..."
-                        className="font-mono font-bold rounded-xl pr-10 text-xs bg-white border-amber-300"
+                        data-no-bangla="true"
+                        name="password"
+                        autoComplete="new-password"
+                        className="font-mono font-bold rounded-xl pr-10 text-xs bg-white border-amber-300 no-bangla"
                       />
                       <button
                         type="button"
                         onClick={() => setShowProfilePassword(!showProfilePassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title={showProfilePassword ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
                       >
                         {showProfilePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -614,13 +632,19 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="font-bold text-xs text-slate-700">পাসওয়ার্ড নিশ্চিত করুন</Label>
+                    <Label className="font-bold text-xs text-slate-700 flex items-center justify-between">
+                      <span>পাসওয়ার্ড নিশ্চিত করুন</span>
+                      <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
+                    </Label>
                     <Input
                       type={showProfilePassword ? "text" : "password"}
                       value={profileConfirmPassword}
                       onChange={(e) => setProfileConfirmPassword(e.target.value)}
                       placeholder="পাসওয়ার্ড পুনরায় লিখুন..."
-                      className="font-mono font-bold rounded-xl text-xs bg-white border-amber-300"
+                      data-no-bangla="true"
+                      name="password"
+                      autoComplete="new-password"
+                      className="font-mono font-bold rounded-xl text-xs bg-white border-amber-300 no-bangla"
                     />
                   </div>
                 </div>
@@ -661,19 +685,26 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="p-6 space-y-4">
               <div className="max-w-md space-y-2">
-                <Label className="font-bold text-xs text-slate-700">সিকিউরিটি পাসওয়ার্ড / পিন কোড</Label>
+                <Label className="font-bold text-xs text-slate-700 flex items-center justify-between">
+                  <span>সিকিউরিটি পাসওয়ার্ড / পিন কোড</span>
+                  <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
+                </Label>
                 <div className="relative">
                   <Input
                     type={showCommissionPin ? "text" : "password"}
                     value={commissionPin}
                     onChange={(e) => setCommissionPin(e.target.value)}
                     placeholder="পাসওয়ার্ড লিখুন (যেমন: 1234)"
-                    className="font-mono font-bold rounded-xl bg-white border-amber-300 pr-10 text-xs"
+                    data-no-bangla="true"
+                    name="pin"
+                    autoComplete="off"
+                    className="font-mono font-bold rounded-xl bg-white border-amber-300 pr-10 text-xs no-bangla"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCommissionPin(!showCommissionPin)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title={showCommissionPin ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
                   >
                     {showCommissionPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -716,19 +747,26 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="p-6 space-y-4">
               <div className="max-w-md space-y-2">
-                <Label className="font-bold text-xs text-slate-700">মওকুফ সিকিউরিটি পাসওয়ার্ড / পিন কোড</Label>
+                <Label className="font-bold text-xs text-slate-700 flex items-center justify-between">
+                  <span>মওকুফ সিকিউরিটি পাসওয়ার্ড / পিন কোড</span>
+                  <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
+                </Label>
                 <div className="relative">
                   <Input
                     type={showWaivePin ? "text" : "password"}
                     value={waivePin}
                     onChange={(e) => setWaivePin(e.target.value)}
                     placeholder="পাসওয়ার্ড লিখুন (যেমন: 1234)"
-                    className="font-mono font-bold rounded-xl bg-white border-rose-300 pr-10 text-xs"
+                    data-no-bangla="true"
+                    name="pin"
+                    autoComplete="off"
+                    className="font-mono font-bold rounded-xl bg-white border-rose-300 pr-10 text-xs no-bangla"
                   />
                   <button
                     type="button"
                     onClick={() => setShowWaivePin(!showWaivePin)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title={showWaivePin ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
                   >
                     {showWaivePin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -901,7 +939,7 @@ export default function SettingsPage() {
 
       {/* USER ADD / EDIT MODAL */}
       <Dialog open={isUserModalOpen} onOpenChange={setIsUserModalOpen}>
-        <DialogContent className="max-w-md rounded-2xl p-6 bg-white font-bengali">
+        <DialogContent className="max-w-md rounded-2xl p-6 bg-white font-bengali" data-no-bangla="true">
           <DialogHeader>
             <DialogTitle className="text-xl font-black text-slate-900 flex items-center gap-2">
               {editingUser ? <Edit2 className="w-5 h-5 text-blue-600" /> : <UserPlus className="w-5 h-5 text-blue-600" />}
@@ -959,7 +997,7 @@ export default function SettingsPage() {
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-slate-700 flex items-center justify-between">
                 <span>অনুমোদিত জিমেইল ঠিকানা (Gmail Address) *</span>
-                <span className="text-[10px] text-slate-400 font-normal">লগইনে ব্যবহার হবে</span>
+                <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
               </Label>
               <Input
                 type="email"
@@ -967,7 +1005,9 @@ export default function SettingsPage() {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 placeholder="staff@gmail.com"
-                className="font-mono font-bold text-xs rounded-xl"
+                data-no-bangla="true"
+                name="email"
+                className="font-mono font-bold text-xs rounded-xl no-bangla"
               />
             </div>
 
@@ -976,8 +1016,9 @@ export default function SettingsPage() {
               <Input
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                placeholder="মোঃ আব্দুর রহিম"
-                className="font-bold text-xs rounded-xl"
+                placeholder="মোঃ আব্দুর রহিম / Rahim"
+                data-no-bangla="true"
+                className="font-bold text-xs rounded-xl no-bangla"
               />
             </div>
 
@@ -1003,14 +1044,27 @@ export default function SettingsPage() {
                 <span>{editingUser ? 'নতুন পাসওয়ার্ড (পরিবর্তন না করতে চাইলে খালি রাখুন)' : 'পাসওয়ার্ড (Password) *'}</span>
                 <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
               </Label>
-              <Input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder={editingUser ? 'নতুন পাসওয়ার্ড দিন (ঐচ্ছিক)' : 'লগইন পাসওয়ার্ড দিন'}
-                required={!editingUser}
-                className="font-mono font-bold text-xs rounded-xl"
-              />
+              <div className="relative">
+                <Input
+                  type={showModalPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder={editingUser ? 'নতুন পাসওয়ার্ড দিন (ঐচ্ছিক)' : 'লগইন পাসওয়ার্ড দিন'}
+                  required={!editingUser}
+                  data-no-bangla="true"
+                  name="password"
+                  autoComplete="new-password"
+                  className="font-mono font-bold text-xs rounded-xl pr-10 no-bangla"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowModalPassword(!showModalPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title={showModalPassword ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
+                >
+                  {showModalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1019,18 +1073,25 @@ export default function SettingsPage() {
                 <Input
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="০১৭১২-XXXXXX"
-                  className="font-bold text-xs rounded-xl"
+                  placeholder="01712-XXXXXX"
+                  data-no-bangla="true"
+                  className="font-bold text-xs rounded-xl font-mono no-bangla"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">ইউজারনেম (ঐচ্ছিক)</Label>
+                <Label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>ইউজারনেম (Username)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">English (EN)</span>
+                </Label>
                 <Input
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  placeholder="স্বয়ংক্রিয় তৈরি হবে"
-                  className="font-mono font-bold text-xs rounded-xl text-slate-600"
+                  placeholder="স্বয়ংক্রিয় তৈরি হবে অথবা username"
+                  data-no-bangla="true"
+                  name="username"
+                  autoComplete="username"
+                  className="font-mono font-bold text-xs rounded-xl text-slate-600 no-bangla"
                 />
               </div>
             </div>

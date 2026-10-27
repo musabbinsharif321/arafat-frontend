@@ -26,7 +26,7 @@ import { cn, fixMiliName, toBnNum, formatBnCurrency, formatDualStock } from '@/l
 import { isToday, isSameMonth, isSameYear, format, startOfMonth, endOfMonth, addMonths, subMonths, addDays, subDays } from 'date-fns';
 import { bn } from 'date-fns/locale';
 import { printElement } from '@/lib/printUtils';
-import { toBengaliDigits } from '@/lib/bengaliUtils';
+import { toBengaliDigits, toEnglishDigits } from '@/lib/bengaliUtils';
 import { BengaliDatePicker } from '@/components/ui/BengaliDatePicker';
 import { DEVELOPER_LOGO_BASE64 } from '@/lib/developerLogo';
 
@@ -791,8 +791,8 @@ function MasterReportsContent() {
 
   const handleExecuteAutoJournal = async () => {
     if (!journalCommission) return;
-    const activePin = (commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234').trim();
-    if (!journalPassword.trim() || journalPassword.trim() !== activePin) {
+    const activePin = toEnglishDigits((commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234')).trim();
+    if (!journalPassword.trim() || toEnglishDigits(journalPassword).trim() !== activePin) {
       toast.error('ভুল পাসওয়ার্ড! সেটিংস থেকে নির্ধারিত সঠিক কমিশন অনুমোদন পাসওয়ার্ড দিন।');
       return;
     }
@@ -6268,12 +6268,15 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                       value={journalPassword}
                       onChange={(e) => setJournalPassword(e.target.value)}
                       placeholder="কমিশন অনুমোদন পাসওয়ার্ড দিন..."
-                      className="h-10 rounded-xl bg-white border-amber-300 pr-10 font-mono text-sm font-black tracking-wider text-slate-900 focus:border-amber-500 focus:ring-amber-500"
+                      data-no-bangla="true"
+                      name="password"
+                      autoComplete="off"
+                      className="no-bangla h-10 rounded-xl bg-white border-amber-300 pr-10 font-mono text-sm font-black tracking-wider text-slate-900 focus:border-amber-500 focus:ring-amber-500"
                     />
                     <button
                       type="button"
                       onClick={() => setShowJournalPassword(prev => !prev)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1 cursor-pointer"
                       title={showJournalPassword ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
                     >
                       {showJournalPassword ? (
@@ -6283,7 +6286,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                       )}
                     </button>
                   </div>
-                  {journalPassword && journalPassword.trim() !== (commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234').trim() ? (
+                  {journalPassword && toEnglishDigits(journalPassword).trim() !== toEnglishDigits(commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234').trim() ? (
                     <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1 mt-1">
                       ⚠️ ভুল পাসওয়ার্ড! সঠিক কমিশন অনুমোদন পাসওয়ার্ড প্রদান করুন
                     </p>
@@ -6305,7 +6308,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
               </Button>
               <Button 
                 onClick={handleExecuteAutoJournal} 
-                disabled={isSubmittingJournal || !journalPassword.trim() || journalPassword.trim() !== (commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234').trim()} 
+                disabled={isSubmittingJournal || !journalPassword.trim() || toEnglishDigits(journalPassword).trim() !== toEnglishDigits(commissionPin || (typeof window !== 'undefined' ? localStorage.getItem('commission_pin') : null) || '1234').trim()} 
                 className="rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed gap-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />

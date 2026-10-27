@@ -51,7 +51,9 @@ import {
   Layers,
   Layers2,
   Copy,
-  Check
+  Check,
+  Search,
+  Tag
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -80,6 +82,7 @@ interface OrderItem {
   quantity: number;
   price: number;
   unit?: string;
+  total?: number;
 }
 
 interface Order {
@@ -118,6 +121,7 @@ interface Product {
   minStock?: number;
   unit?: string;
   sellPrice?: number;
+  purchasePrice?: number;
 }
 
 interface Customer {
@@ -253,6 +257,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [copiedReport, setCopiedReport] = useState(false);
   const [showTextPreview, setShowTextPreview] = useState(false);
+  const [productPriceSearch, setProductPriceSearch] = useState('');
 
   const fetchDashboardData = useCallback(() => {
     Promise.all([
@@ -270,7 +275,8 @@ export default function Dashboard() {
         stock: Number(p.stock || 0),
         minStock: Number(p.min_stock || 10),
         unit: p.unit || 'পিস',
-        sellPrice: Number(p.sell_price || 0)
+        sellPrice: Number(p.sell_price || 0),
+        purchasePrice: Number(p.purchase_price || (p as any).buy_price || 0)
       })));
 
       const safeTxList = Array.isArray(txList) ? txList : [];
@@ -290,7 +296,8 @@ export default function Dashboard() {
           name: i.product_name || i.name || '',
           quantity: Number(i.quantity || 0),
           price: Number(i.price || 0),
-          unit: i.unit || 'পিস'
+          unit: i.unit || 'পিস',
+          total: Number(i.total || (Number(i.quantity || 0) * Number(i.price || 0)))
         })),
         notes: t.notes,
         createdAt: t.created_at
@@ -580,6 +587,144 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, tru
     ];
   }, [stats]);
 
+  // Current Month Rod and Cement Sales Analytics
+  const monthlyRodAndCementSales = useMemo(() => {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+
+    const safeParseDate = (dVal: any) => {
+      if (!dVal) return null;
+      try {
+        if (dVal instanceof Date) return isNaN(dVal.getTime()) ? null : dVal;
+        let str = String(dVal).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+          const [y, m, d] = str.split('-').map(Number);
+          return new Date(y, m - 1, d, 12, 0, 0);
+        }
+        if (str.includes(' ') && !str.includes('T')) {
+          str = str.replace(' ', 'T');
+        }
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+      } catch {
+        return null;
+      }
+    };
+
+    let rodTotalAmount = 0;
+    let rodTotalKg = 0;
+    let cementTotalAmount = 0;
+    let cementTotalBags = 0;
+
+    orders.forEach(o => {
+      const d = safeParseDate(o.createdAt);
+      if (!d || d.getFullYear() !== curYear || d.getMonth() !== curMonth) return;
+
+      const items = o.items || [];
+      if (items.length > 0) {
+        items.forEach(i => {
+          const itemTotal = Number(i.total || (Number(i.quantity || 0) * Number(i.price || 0)));
+          const qty = Number(i.quantity || 0);
+          const u = (i.unit || '').toLowerCase();
+
+          if (isCementProduct(i)) {
+            cementTotalAmount += itemTotal;
+            cementTotalBags += qty;
+          } else if (isRodProduct(i)) {
+            rodTotalAmount += itemTotal;
+            rodTotalKg += u.includes('টন') ? qty * 1000 : qty;
+          }
+        });
+      }
+    });
+
+    const rodTon = rodTotalKg / 1000;
+    const rodTonFormatted = rodTon % 1 === 0 ? rodTon.toLocaleString('en-IN') : rodTon.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    const rodKgFormatted = rodTotalKg % 1 === 0 ? rodTotalKg.toLocaleString('en-IN') : rodTotalKg.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const cementBagsFormatted = cementTotalBags.toLocaleString('en-IN');
+
+    const rodDisplayMain = rodTotalKg >= 1000 ? `${toBengaliDigits(rodTonFormatted)} টন` : `${toBengaliDigits(rodKgFormatted)} কেজি`;
+    const rodDisplaySub = rodTotalKg >= 1000 ? `${toBengaliDigits(rodKgFormatted)} কেজি` : (rodTotalKg > 0 ? `${toBengaliDigits(rodTonFormatted)} টন` : '');
+
+    return {
+      rodTotalAmount,
+      rodTotalKg,
+      rodTon,
+      rodDisplayMain,
+      rodDisplaySub,
+      rodTonStr: `${toBengaliDigits(rodTonFormatted)} টন`,
+      rodKgStr: `${toBengaliDigits(rodKgFormatted)} কেজি`,
+      cementTotalAmount,
+      cementTotalBags,
+      cementBagsStr: `${toBengaliDigits(cementBagsFormatted)} ব্যাগ`,
+    };
+  }, [orders]);
+
+  // Last 7 Days Rod & Cement Sales Trend
+  const weeklyCategoryTrend = useMemo(() => {
+    const days: { dateStr: string; name: string; rodAmount: number; rodKg: number; cementAmount: number; cementBags: number }[] = [];
+    const dayNames = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহস্পতি', 'শুক্র', 'শনি'];
+    const now = new Date();
+
+    const safeParseDate = (dVal: any) => {
+      if (!dVal) return null;
+      try {
+        if (dVal instanceof Date) return isNaN(dVal.getTime()) ? null : dVal;
+        let str = String(dVal).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+          const [y, m, d] = str.split('-').map(Number);
+          return new Date(y, m - 1, d, 12, 0, 0);
+        }
+        if (str.includes(' ') && !str.includes('T')) {
+          str = str.replace(' ', 'T');
+        }
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+      } catch {
+        return null;
+      }
+    };
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dStr = format(d, 'yyyy-MM-dd');
+      days.push({
+        dateStr: dStr,
+        name: dayNames[d.getDay()],
+        rodAmount: 0,
+        rodKg: 0,
+        cementAmount: 0,
+        cementBags: 0
+      });
+    }
+
+    orders.forEach(o => {
+      const d = safeParseDate(o.createdAt);
+      if (!d) return;
+      const dStr = format(d, 'yyyy-MM-dd');
+      const targetDay = days.find(day => day.dateStr === dStr);
+      if (!targetDay) return;
+
+      (o.items || []).forEach(i => {
+        const itemTotal = Number(i.total || (Number(i.quantity || 0) * Number(i.price || 0)));
+        const qty = Number(i.quantity || 0);
+        const u = (i.unit || '').toLowerCase();
+
+        if (isCementProduct(i)) {
+          targetDay.cementAmount += itemTotal;
+          targetDay.cementBags += qty;
+        } else if (isRodProduct(i)) {
+          targetDay.rodAmount += itemTotal;
+          targetDay.rodKg += u.includes('টন') ? qty * 1000 : qty;
+        }
+      });
+    });
+
+    return days;
+  }, [orders]);
+
   // Real Financial Pie Data
   const financialPieData = useMemo(() => {
     return [
@@ -589,37 +734,44 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, tru
     ];
   }, [totalMonthlySalesVal, totalMonthlyPurchasesVal, netProfitVal]);
 
-  // Real Inventory Breakdown List
-  const stockBreakdown = useMemo(() => {
+  // All Products Purchase Price List (from Stock/Inventory Page)
+  const productPriceList = useMemo(() => {
     if (products.length === 0) {
       return [];
     }
 
-    const maxStock = Math.max(...products.map(p => p.stock || 1), 100);
-    const colors = ['bg-orange-500', 'bg-indigo-600', 'bg-blue-600', 'bg-violet-600', 'bg-emerald-600', 'bg-amber-500'];
-    const badges = [
-      'bg-orange-50 text-orange-700 border-orange-200',
-      'bg-indigo-50 text-indigo-700 border-indigo-200',
-      'bg-blue-50 text-blue-700 border-blue-200',
-      'bg-violet-50 text-violet-700 border-violet-200',
-      'bg-emerald-50 text-emerald-700 border-emerald-200',
-      'bg-amber-50 text-amber-700 border-amber-200'
-    ];
-
-    return products.slice(0, 6).map((p, idx) => {
+    return products.map((p) => {
       const name = fixMiliName(p.name);
-      const unit = p.unit || (name.includes('রড') ? 'টন' : 'বস্তা');
-      const stockVal = p.stock || 0;
-      const percent = Math.min(100, Math.round((stockVal / maxStock) * 100));
+      const unit = p.unit || (name.includes('রড') ? 'কেজি' : 'ব্যাগ');
+      const purchasePrice = Number(p.purchasePrice || 0);
+      const stock = Number(p.stock || 0);
+      const totalStockVal = purchasePrice * stock;
+
       return {
+        id: p.id,
         name,
-        stock: `${stockVal.toLocaleString()} ${unit}`,
-        percent: Math.max(15, percent),
-        color: colors[idx % colors.length],
-        badge: badges[idx % badges.length]
+        brand: p.brand || '',
+        unit,
+        purchasePrice,
+        stock,
+        totalStockVal,
+        purchasePriceFormatted: purchasePrice > 0 ? `${toBengaliDigits(purchasePrice.toLocaleString('en-IN'))} ৳` : 'দর নেই',
+        stockFormatted: `${toBengaliDigits(stock.toLocaleString('en-IN'))} ${unit}`
       };
     });
   }, [products]);
+
+  const filteredProductPrices = useMemo(() => {
+    if (!productPriceSearch.trim()) {
+      return productPriceList;
+    }
+    const q = productPriceSearch.trim().toLowerCase();
+    return productPriceList.filter(p => 
+      p.name.toLowerCase().includes(q) || 
+      p.brand.toLowerCase().includes(q) ||
+      p.unit.toLowerCase().includes(q)
+    );
+  }, [productPriceList, productPriceSearch]);
 
   // Real Low Stock Warning List
   const lowStockAlertList = useMemo(() => {
@@ -717,35 +869,36 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, tru
             graphData={weeklyData.map(d => ({ v: Math.max(0, d.বিক্রয় - d.ক্রয়) }))}
           />
 
-          {/* CARD 4: MONTHLY SALES (Double Spline & Target Line Chart) */}
+          {/* CARD 4: MONTHLY ROD SALES */}
           <StatCard 
-            title="চলতি মাসের বিক্রি" 
-            value={formatBnCurrency(totalMonthlySalesVal)} 
+            title="চলতি মাসের রড বিক্রি" 
+            value={monthlyRodAndCementSales.rodDisplayMain} 
+            subValue={monthlyRodAndCementSales.rodDisplaySub || undefined}
             icon={TrendingUp} 
-            trend="বিক্রি" 
+            trend="রড সেলস" 
             trendUp={true} 
-            description="চলতি মাসের সেলস"
+            description="চলতি মাসের মোট রড"
             bg="bg-gradient-to-br from-[#8c6b1c] via-[#b88e2d] to-[#d4af37]"
             iconBg="bg-amber-100/90 text-amber-800"
             badgeBg="bg-amber-100 text-amber-800"
             graphType="double-line"
             strokeColor="#b88e2d"
-            graphData={weeklyData.map(d => ({ v: d.বিক্রয়, t: d.ক্রয় }))}
+            graphData={weeklyCategoryTrend.map(d => ({ v: d.rodKg, t: d.rodKg * 0.7 }))}
           />
 
-          {/* CARD 5: STOCK ALERT (Segmented Pulse Warning Bar Chart) */}
+          {/* CARD 5: MONTHLY CEMENT SALES */}
           <StatCard 
-            title="স্টক সতর্কতা" 
-            value={`${toBnNum(lowStockCount)}টি পণ্য`} 
-            icon={AlertCircle} 
-            trend="রিফিল" 
-            trendUp={false} 
-            description="পুনরায় অর্ডার প্রয়োজন"
+            title="চলতি মাসের সিমেন্ট বিক্রি" 
+            value={monthlyRodAndCementSales.cementBagsStr} 
+            icon={PackageCheck} 
+            trend="সিমেন্ট সেলস" 
+            trendUp={true} 
+            description="চলতি মাসের মোট সিমেন্ট"
             bg="bg-gradient-to-br from-amber-500 via-amber-600 to-yellow-600"
             iconBg="bg-amber-100 text-amber-800"
             badgeBg="bg-amber-100 text-amber-800"
             graphType="segmented-bars"
-            graphData={products.length > 0 ? products.slice(0, 7).map(p => ({ v: p.stock })) : [{ v: 0 }]}
+            graphData={weeklyCategoryTrend.map(d => ({ v: d.cementBags }))}
           />
         </div>
 
@@ -1128,43 +1281,93 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, tru
             </div>
           </div>
 
-          {/* Current Stock Inventory Breakdown */}
+          {/* Product Purchase Price List (from Stock/Inventory Page) */}
           <div className="col-span-12 lg:col-span-5 bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 overflow-hidden border border-slate-200/80 flex flex-col font-bengali">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shadow-md shadow-emerald-600/20">
-                  <PackageCheck className="w-4.5 h-4.5 text-white" />
+                <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-md shadow-blue-600/20 text-white flex-shrink-0">
+                  <Tag className="w-4.5 h-4.5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-slate-800 text-sm">বর্তমান স্টক স্থিতি</h3>
-                  <p className="text-[10px] font-bold text-slate-400">রড ও সিমেন্টের বর্তমান মজুদ</p>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="font-black text-slate-800 text-sm">পণ্যের ক্রয়মূল্য তালিকা</h3>
+                    <span className="text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                      {toBengaliDigits(productPriceList.length)}টি পণ্য
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400">স্টক পেজের বর্তমান ক্রয়মূল্য (দর) ও মোট মূল্য</p>
                 </div>
               </div>
-              <Link href="/inventory" className="text-[11px] font-bold text-emerald-600 hover:underline">
+              <Link href="/inventory" className="text-[11px] font-bold text-blue-600 hover:underline flex-shrink-0">
                 ইনভেন্টরি ➔
               </Link>
             </div>
-            <div className="p-5 flex-1 space-y-3.5 overflow-y-auto max-h-[380px]">
-              {stockBreakdown.length > 0 ? (
-                stockBreakdown.map((item, i) => (
-                  <div key={i} className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-700">{item.name}</span>
-                      <span className={cn('font-black text-[11px] px-2 py-0.5 rounded-md border', item.badge)}>
-                        {item.stock}
-                      </span>
+
+            {/* Quick Search inside Product Prices */}
+            {productPriceList.length > 3 && (
+              <div className="px-5 pt-3 pb-1 border-b border-slate-50">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={productPriceSearch}
+                    onChange={(e) => setProductPriceSearch(e.target.value)}
+                    placeholder="পণ্য বা ক্রয়মূল্য খুঁজুন..."
+                    className="w-full text-xs font-medium pl-8 pr-7 py-1.5 rounded-xl border border-slate-200/90 bg-slate-50/80 focus:bg-white focus:outline-none focus:ring-1.5 focus:ring-blue-500 text-slate-800 transition-all placeholder:text-slate-400"
+                  />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  {productPriceSearch && (
+                    <button 
+                      onClick={() => setProductPriceSearch('')} 
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs w-4 h-4 flex items-center justify-center"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 flex-1 space-y-2.5 overflow-y-auto max-h-[380px]">
+              {filteredProductPrices.length > 0 ? (
+                filteredProductPrices.map((item) => (
+                  <div 
+                    key={item.id} 
+                    className="p-3 rounded-2xl bg-slate-50/70 hover:bg-blue-50/40 border border-slate-200/70 hover:border-blue-200 transition-all duration-200 flex items-center justify-between gap-2.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-slate-800 text-xs truncate max-w-[210px]">{item.name}</span>
+                        {item.brand && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                            {item.brand}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-medium flex-wrap">
+                        <span>মজুদ: <strong className="text-slate-700 font-bold">{item.stockFormatted}</strong></span>
+                        {item.totalStockVal > 0 && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span>মোট মূল্য: <strong className="text-slate-700 font-bold">{formatBnCurrency(item.totalStockVal)}</strong></span>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className={cn('h-full rounded-full transition-all duration-500', item.color)} 
-                        style={{ width: `${item.percent}%` }} 
-                      />
+                    
+                    <div className="text-right flex-shrink-0">
+                      <div className="inline-flex items-center gap-1 text-xs font-black px-2.5 py-1 rounded-xl bg-blue-50 text-blue-900 border border-blue-200/80 shadow-2xs">
+                        <span className="text-[10px] text-blue-600 font-bold">ক্রয়মূল্য:</span>
+                        <span className="text-sm font-black text-blue-800">{item.purchasePriceFormatted}</span>
+                        {item.purchasePrice > 0 && (
+                          <span className="text-[9.5px] text-blue-600 font-bold">/{item.unit}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="py-8 text-center text-xs text-slate-400 font-medium">
-                  কোন পণ্য যুক্ত করা হয়নি। ইনভেন্টরি পেজ থেকে পণ্য যুক্ত করুন।
+                  {productPriceSearch ? 'কোন পণ্যের ক্রয়মূল্য খুঁজে পাওয়া যায়নি।' : 'কোন পণ্য যুক্ত করা হয়নি। ইনভেন্টরি পেজ থেকে পণ্য যুক্ত করুন।'}
                 </div>
               )}
             </div>
@@ -1293,6 +1496,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodVal(dayRodReturnKg, tru
 function StatCard({ 
   title, 
   value, 
+  subValue,
   icon: Icon, 
   trend, 
   trendUp, 
@@ -1319,7 +1523,14 @@ function StatCard({
             <Icon className="w-5 h-5" />
           </div>
         </div>
-        <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none">{value}</h3>
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none">{value}</h3>
+          {subValue && (
+            <span className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md">
+              {subValue}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 mt-2.5">
           <span className={cn(
             "flex items-center gap-0.5 text-[10px] font-black px-2 py-0.5 rounded-lg",
@@ -1376,11 +1587,12 @@ function StatCard({
         {graphType === 'segmented-bars' && (
           <div className="flex items-end justify-between px-5 h-full pb-2 gap-1.5">
             {graphData.map((d: any, idx: number) => {
-              const heightPercent = Math.min(100, Math.max(25, d.v * 8));
+              const maxVal = Math.max(...graphData.map((x: any) => Number(x.v) || 0), 10);
+              const heightPercent = Math.min(100, Math.max(20, Math.round(((Number(d.v) || 0) / maxVal) * 100)));
               return (
                 <div key={idx} className="flex-1 bg-amber-100/60 rounded-md h-full flex items-end overflow-hidden p-0.5">
                   <div 
-                    className={cn("w-full rounded-xs transition-all duration-500", d.v < 7 ? "bg-rose-500 animate-pulse" : "bg-amber-500")} 
+                    className="w-full rounded-xs transition-all duration-500 bg-amber-500 hover:bg-amber-600" 
                     style={{ height: `${heightPercent}%` }}
                   />
                 </div>

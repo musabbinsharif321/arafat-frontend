@@ -97,16 +97,24 @@ export function BanglaInputProvider({ children }: { children: React.ReactNode })
       const target = e.target as HTMLInputElement | HTMLTextAreaElement;
       if (!target || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
 
-      // Bypass completely on login page
-      if (pathname === '/login') {
+      // Bypass completely on login page and settings page
+      if (pathname === '/login' || pathname?.startsWith('/settings')) {
         return;
       }
 
-      // Skip non-text inputs (password, date, number, etc.)
+      // Skip non-text inputs (password, date, number, etc.) and auth/pin/username fields
       const inputType = target.getAttribute('type') || 'text';
-      if (['password', 'email', 'file', 'checkbox', 'radio', 'range', 'color', 'date', 'time', 'datetime-local', 'number'].includes(inputType)) {
+      const inputName = (target.getAttribute('name') || '').toLowerCase();
+      const inputAutoComplete = (target.getAttribute('autocomplete') || '').toLowerCase();
+      const isPasswordOrPinOrAuth = 
+        ['password', 'email', 'file', 'checkbox', 'radio', 'range', 'color', 'date', 'time', 'datetime-local', 'number'].includes(inputType) ||
+        inputName.includes('password') || inputName.includes('pin') || inputName.includes('username') || inputName.includes('email') ||
+        inputAutoComplete.includes('password') || inputAutoComplete.includes('username') || inputAutoComplete.includes('email');
+
+      if (isPasswordOrPinOrAuth) {
         return;
       }
+
       if (
         target.dataset.noBangla === 'true' || 
         target.getAttribute('lang') === 'en' || 
@@ -236,16 +244,24 @@ export function BanglaInputProvider({ children }: { children: React.ReactNode })
     const handlePaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLInputElement | HTMLTextAreaElement;
       if (!target || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-      if (pathname === '/login') return;
+      if (pathname === '/login' || pathname?.startsWith('/settings')) return;
+
+      const inputType = target.getAttribute('type') || 'text';
+      const inputName = (target.getAttribute('name') || '').toLowerCase();
+      const inputAutoComplete = (target.getAttribute('autocomplete') || '').toLowerCase();
+      const isPasswordOrPinOrAuth = 
+        ['password', 'email', 'file', 'checkbox', 'radio', 'range', 'color', 'date', 'time', 'datetime-local', 'number'].includes(inputType) ||
+        inputName.includes('password') || inputName.includes('pin') || inputName.includes('username') || inputName.includes('email') ||
+        inputAutoComplete.includes('password') || inputAutoComplete.includes('username') || inputAutoComplete.includes('email');
+
+      if (isPasswordOrPinOrAuth) return;
+
       if (
         target.dataset.noBangla === 'true' || 
         target.getAttribute('lang') === 'en' || 
         target.classList.contains('no-bangla') ||
         target.closest('[data-no-bangla="true"]')
       ) return;
-
-      const inputType = target.getAttribute('type') || 'text';
-      if (['password', 'email', 'file', 'checkbox', 'radio', 'range', 'color', 'date', 'time', 'datetime-local', 'number'].includes(inputType)) return;
 
       const text = e.clipboardData?.getData('text');
       if (!text) return;

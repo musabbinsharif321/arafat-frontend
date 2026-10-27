@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { toBengaliDigits } from '@/lib/bengaliUtils';
+import { toBengaliDigits, toEnglishDigits } from '@/lib/bengaliUtils';
 import { printElement } from '@/lib/printUtils';
 import { format } from 'date-fns';
 import { bn } from 'date-fns/locale';
@@ -78,7 +78,7 @@ export default function CustomerDuesPage() {
 
   const getWaivePin = () => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('waive_pin') || localStorage.getItem('commission_pin') || '1234').trim();
+      return toEnglishDigits(localStorage.getItem('waive_pin') || localStorage.getItem('commission_pin') || '1234').trim();
     }
     return '1234';
   };
@@ -97,7 +97,7 @@ export default function CustomerDuesPage() {
       return;
     }
     const currentPin = getWaivePin();
-    if (!waivePassword.trim() || waivePassword.trim() !== currentPin) {
+    if (!waivePassword.trim() || toEnglishDigits(waivePassword).trim() !== currentPin) {
       toast.error('ভুল পাসওয়ার্ড! সঠিক মওকুফ সিকিউরিটি পাসওয়ার্ড প্রদান করুন');
       return;
     }
@@ -1049,7 +1049,10 @@ export default function CustomerDuesPage() {
                     value={waivePassword}
                     onChange={(e) => setWaivePassword(e.target.value)}
                     placeholder="পাসওয়ার্ড লিখুন (যেমন: 1234)"
-                    className="rounded-xl text-xs font-bold h-10 border-slate-200 pr-10 font-mono"
+                    data-no-bangla="true"
+                    name="password"
+                    autoComplete="off"
+                    className="no-bangla rounded-xl text-xs font-bold h-10 border-slate-200 pr-10 font-mono"
                   />
                   <button
                     type="button"
@@ -1060,7 +1063,7 @@ export default function CustomerDuesPage() {
                     {showWaivePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                {waivePassword && waivePassword.trim() !== getWaivePin() ? (
+                {waivePassword && toEnglishDigits(waivePassword).trim() !== getWaivePin() ? (
                   <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1 mt-1">
                     ⚠️ ভুল পাসওয়ার্ড! সঠিক মওকুফ সিকিউরিটি পাসওয়ার্ড প্রদান করুন
                   </p>
@@ -1094,7 +1097,7 @@ export default function CustomerDuesPage() {
             <Button
               type="button"
               onClick={handleConfirmWaive}
-              disabled={isWaiving || waiveAmount <= 0 || !waivePassword.trim() || waivePassword.trim() !== getWaivePin()}
+              disabled={isWaiving || waiveAmount <= 0 || !waivePassword.trim() || toEnglishDigits(waivePassword).trim() !== getWaivePin()}
               className="rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white h-9 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isWaiving ? 'মওকুফ হচ্ছে...' : 'মওকুফ নিশ্চিত করুন'}
