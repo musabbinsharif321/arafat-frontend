@@ -4499,6 +4499,16 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
               const totalCustAdvance = customersWithAdvance.reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
 
               const totalHawlatVal = hawlats.reduce((sum, h) => sum + (h.amount || 0), 0);
+              const groupedHawlats = Object.values(
+                hawlats.reduce((acc, h) => {
+                  const name = (h.personName || 'সাধারণ ব্যক্তি').trim();
+                  if (!acc[name]) {
+                    acc[name] = { personName: name, amount: 0 };
+                  }
+                  acc[name].amount += (h.amount || 0);
+                  return acc;
+                }, {} as Record<string, { personName: string; amount: number }>)
+              );
               const totalAssets = rodStockVal + cementStockVal + ringStockVal + otherStockVal + totalCash + totalBankBal + totalCustDue + totalHawlatVal;
 
               const suppliersWithDue = suppliers.filter(s => (s.totalDue || 0) > 0);
@@ -4864,8 +4874,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                           </tr>
 
                           {/* 8. হাওলাত সমূহ */}
-                          {hawlats.map((h) => (
-                            <tr key={h.id} style={{ pageBreakInside: 'avoid' }}>
+                          {groupedHawlats.map((h) => (
+                            <tr key={h.personName} style={{ pageBreakInside: 'avoid' }}>
                               <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                                 {h.personName} -
                               </td>
@@ -5253,8 +5263,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                         </tr>
 
                         {/* 8. হাওলাত সমূহ */}
-                        {hawlats.map((h) => (
-                          <tr key={`print_${h.id}`} style={{ pageBreakInside: 'avoid' }}>
+                        {groupedHawlats.map((h) => (
+                          <tr key={`print_${h.personName}`} style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                               {h.personName} -
                             </td>
