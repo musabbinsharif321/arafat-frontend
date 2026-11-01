@@ -3208,13 +3208,11 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
               const filteredPurchases = purchases.filter(p => filterByPeriod(p.createdAt));
               const filteredExpenses = expenses.filter(e => filterByPeriod(e.createdAt || e.date));
 
-              // 2. Revenue Breakdown (আয়ের খাত - রড ও রিং রডের আওতায় এবং সিমেন্ট; কোনো অন্যান্য পণ্য নয়)
-              const grossOrderSalesAmount = filteredOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-              const totalSaleReturnAmount = filteredSaleReturns.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
-
+              // 2. Revenue Breakdown (আয়ের খাত - শুধুমাত্র খাঁটি/Pure সিমেন্ট এবং রড-রিং পণ্যের দর * পরিমাণ অনুযায়ী হিসাব)
               let grossCementSalesQty = 0;
               let grossCementSalesAmount = 0;
               let grossRodSalesQty = 0;
+              let grossRodSalesAmount = 0;
 
               filteredOrders.forEach(o => {
                 const items = o.items || [];
@@ -3224,6 +3222,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                   const isCementOrder = (o.notes || '').toLowerCase().includes('সিমেন্ট') || (o.notes || '').toLowerCase().includes('cement');
                   if (isCementOrder) {
                     grossCementSalesAmount += orderTotal;
+                  } else {
+                    grossRodSalesAmount += orderTotal;
                   }
                   return;
                 }
@@ -3246,20 +3246,16 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                 const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
 
-                if (cSum > 0 && rSum === 0) {
-                  grossCementSalesAmount += orderTotal;
-                } else if (rSum > 0 && cSum === 0) {
-                  // pure rod / ring
-                } else if (cSum + rSum > 0) {
-                  const cRatio = cSum / (cSum + rSum);
-                  grossCementSalesAmount += orderTotal * cRatio;
-                }
+                // খাঁটি পণ্যের দর * পরিমাণ যোগ করা
+                grossCementSalesAmount += cSum;
+                grossRodSalesAmount += rSum;
               });
 
-              // Calculate Sales Returns breakdown for Cement and Rod
+              // Calculate Sales Returns breakdown for Cement and Rod (খাঁটি ফেরত মূল্য)
               let cementReturnQty = 0;
               let cementReturnAmount = 0;
               let rodReturnQty = 0;
+              let rodReturnAmount = 0;
 
               filteredSaleReturns.forEach(r => {
                 const items = r.items || [];
@@ -3269,6 +3265,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                   const isCementRet = (r.notes || '').toLowerCase().includes('সিমেন্ট') || (r.notes || '').toLowerCase().includes('cement');
                   if (isCementRet) {
                     cementReturnAmount += retTotal;
+                  } else {
+                    rodReturnAmount += retTotal;
                   }
                   return;
                 }
@@ -3291,18 +3289,9 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                 const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
 
-                if (cSum > 0 && rSum === 0) {
-                  cementReturnAmount += retTotal;
-                } else if (rSum > 0 && cSum === 0) {
-                  // pure rod / ring
-                } else if (cSum + rSum > 0) {
-                  const cRatio = cSum / (cSum + rSum);
-                  cementReturnAmount += retTotal * cRatio;
-                }
+                cementReturnAmount += cSum;
+                rodReturnAmount += rSum;
               });
-
-              const grossRodSalesAmount = Math.max(0, grossOrderSalesAmount - grossCementSalesAmount);
-              const rodReturnAmount = Math.max(0, totalSaleReturnAmount - cementReturnAmount);
 
               // Net Quantities and Amounts (সমন্বিত নিট বিক্রয়)
               const cementSalesQty = Math.max(0, grossCementSalesQty - cementReturnQty);
@@ -3311,14 +3300,15 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
               const cementSalesAmount = Math.max(0, grossCementSalesAmount - cementReturnAmount);
               const rodSalesAmount = Math.max(0, grossRodSalesAmount - rodReturnAmount);
 
+              const grossProductSalesAmount = grossCementSalesAmount + grossRodSalesAmount;
+              const totalSaleReturnAmount = cementReturnAmount + rodReturnAmount;
               const totalSalesIncome = cementSalesAmount + rodSalesAmount;
 
-              // 3. Cement Direct Costs (সিমেন্ট ক্রয় ও পরিবহন ব্যয়)
-              const totalOrderPurchaseAmount = filteredPurchases.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
-
+              // 3. Pure Cement & Rod Purchases (খাঁটি ক্রয় ব্যয়)
               let cementPurchaseQty = 0;
               let cementPurchaseAmount = 0;
               let rodPurchaseQty = 0;
+              let rodPurchaseAmount = 0;
 
               filteredPurchases.forEach(p => {
                 const items = p.items || [];
@@ -3328,6 +3318,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                   const isCementPurchase = isCementProduct({ name: p.supplierName }) || (p.notes || '').toLowerCase().includes('সিমেন্ট') || (p.notes || '').toLowerCase().includes('cement');
                   if (isCementPurchase) {
                     cementPurchaseAmount += pTotal;
+                  } else {
+                    rodPurchaseAmount += pTotal;
                   }
                   return;
                 }
@@ -3350,17 +3342,9 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                 const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
 
-                if (cSum > 0 && rSum === 0) {
-                  cementPurchaseAmount += pTotal;
-                } else if (rSum > 0 && cSum === 0) {
-                  // pure rod / ring
-                } else if (cSum + rSum > 0) {
-                  const cRatio = cSum / (cSum + rSum);
-                  cementPurchaseAmount += pTotal * cRatio;
-                }
+                cementPurchaseAmount += cSum;
+                rodPurchaseAmount += rSum;
               });
-
-              const rodPurchaseAmount = Math.max(0, totalOrderPurchaseAmount - cementPurchaseAmount);
 
               const cementTruckFare = filteredExpenses.filter(e => 
                 (e.title?.includes('সিমেন্ট') && (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('পরিবহন'))) || 
@@ -3633,7 +3617,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                       <p className="text-2xl font-black text-emerald-700 mt-1">{formatBnCurrency(totalSalesIncome)}</p>
                       <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
                         {totalSaleReturnAmount > 0 
-                          ? `বিক্রি: ${formatBnCurrency(grossOrderSalesAmount)} | ফেরত: -${formatBnCurrency(totalSaleReturnAmount)}`
+                          ? `বিক্রি: ${formatBnCurrency(grossProductSalesAmount)} | ফেরত: -${formatBnCurrency(totalSaleReturnAmount)}`
                           : 'সিমেন্ট ও রড নিট বিক্রয়'}
                       </p>
                     </Card>
@@ -4394,9 +4378,29 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                               const d = typeof dt === 'string' ? new Date(dt) : dt;
                               return !isNaN(d.getTime()) && format(d, 'yyyy-MM') === mStr;
                             });
+                            const mSaleReturns = saleReturns.filter(r => {
+                              if (!r.createdAt) return false;
+                              const d = typeof r.createdAt === 'string' ? new Date(r.createdAt) : r.createdAt;
+                              return !isNaN(d.getTime()) && format(d, 'yyyy-MM') === mStr;
+                            });
 
-                            const mSales = mOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-                            const mPurchTotal = mPurchases.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
+                            const mGrossSales = mOrders.reduce((sum, o) => {
+                              const items = o.items || [];
+                              if (items.length === 0) return sum + (Number(o.totalAmount) || 0);
+                              return sum + items.reduce((iSum, i) => iSum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
+                            }, 0);
+                            const mRetAmount = mSaleReturns.reduce((sum, r) => {
+                              const items = r.items || [];
+                              if (items.length === 0) return sum + (Number(r.totalAmount) || 0);
+                              return sum + items.reduce((iSum, i) => iSum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
+                            }, 0);
+                            const mSales = Math.max(0, mGrossSales - mRetAmount);
+
+                            const mPurchTotal = mPurchases.reduce((sum, p) => {
+                              const items = p.items || [];
+                              if (items.length === 0) return sum + (Number(p.totalAmount) || 0);
+                              return sum + items.reduce((iSum, i) => iSum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
+                            }, 0);
                             const mDirectExp = mExpenses.filter(e => 
                               ((e.title?.includes('সিমেন্ট') || e.title?.includes('রড')) && 
                                (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('লেবার') || e.title?.includes('আনলোড')))

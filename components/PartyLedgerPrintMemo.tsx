@@ -386,6 +386,57 @@ export function buildLedgerPrintRows(
       const labCost = Number(meta.laborCost || (tx as any).laborCost || (tx as any).labor_cost || 0);
       const shipCost = Number(meta.shippingCost || (tx as any).shippingCost || (tx as any).shipping_cost || (tx as any).transportCost || 0);
 
+      const isSupplierTx = txType === 'purchase' || isSupplier || !isCustomer;
+      const shipPayer = meta.shippingPayer || (tx as any).shippingPayer || 'shop';
+      const laborPayer = meta.laborPayer || (tx as any).laborPayer || 'shop';
+
+      // Check whether shipping charge is to be borne by the party (customer/supplier) or by the shop
+      let shippingCostToCustomer = false;
+      if (isSupplierTx) {
+        shippingCostToCustomer = shipPayer === 'supplier';
+      } else {
+        if ((tx as any).shippingCostToCustomerLedger !== undefined) {
+          shippingCostToCustomer = Boolean((tx as any).shippingCostToCustomerLedger);
+        } else if (meta.shippingCostToCustomerLedger !== undefined) {
+          shippingCostToCustomer = Boolean(meta.shippingCostToCustomerLedger);
+        } else if (meta.shippingToCustomerLedger !== undefined) {
+          shippingCostToCustomer = Boolean(meta.shippingToCustomerLedger);
+        } else if (meta.shippingPayer === 'shop') {
+          shippingCostToCustomer = false;
+        } else if (tx.subtotal && tx.totalAmount && shipCost > 0) {
+          // If totalAmount did not include shipCost (and no explicit discount was set), Dokan paid shipping
+          const hasExplicitDiscount = Number(tx.discount || 0) > 0 || Number(meta.discountFlat || meta.discount || 0) > 0 || Number(meta.discountPercent || 0) > 0;
+          if (!hasExplicitDiscount && Number(tx.totalAmount) <= Number(tx.subtotal) + (labCost || 0) + 0.5) {
+            shippingCostToCustomer = false;
+          } else {
+            shippingCostToCustomer = true;
+          }
+        } else {
+          shippingCostToCustomer = true;
+        }
+      }
+
+      const effectiveShipCost = (shippingCostToCustomer && shipCost > 0) ? shipCost : 0;
+
+      let laborCostToCustomer = false;
+      if (isSupplierTx) {
+        laborCostToCustomer = laborPayer === 'supplier';
+      } else {
+        if ((tx as any).laborCostToCustomerLedger !== undefined) {
+          laborCostToCustomer = Boolean((tx as any).laborCostToCustomerLedger);
+        } else if (meta.laborCostToCustomerLedger !== undefined) {
+          laborCostToCustomer = Boolean(meta.laborCostToCustomerLedger);
+        } else if (meta.laborToCustomerLedger !== undefined) {
+          laborCostToCustomer = Boolean(meta.laborToCustomerLedger);
+        } else if (meta.laborPayer === 'shop') {
+          laborCostToCustomer = false;
+        } else {
+          laborCostToCustomer = true;
+        }
+      }
+
+      const effectiveLabCost = (laborCostToCustomer && labCost > 0) ? labCost : 0;
+
       // Special discount from invoice or purchase
       const discountPercent = Number(meta.discountPercent || 0);
       let invDiscount = Number(tx.discount) > 0 
@@ -405,9 +456,9 @@ export function buildLedgerPrintRows(
         }
       }
 
-      // Fallback: check difference between subtotal and totalAmount
+      // Fallback: check difference between subtotal and totalAmount (only counting charges actually billed to customer)
       if (invDiscount <= 0 && tx.subtotal && tx.totalAmount) {
-        const expectedTotal = Number(tx.subtotal) + (isCustomer ? (labCost + shipCost) : 0);
+        const expectedTotal = Number(tx.subtotal) + (isCustomer ? (effectiveLabCost + effectiveShipCost) : 0);
         const actualTotal = Number(tx.totalAmount);
         if (expectedTotal - actualTotal > 0.5) {
           invDiscount = Math.round((expectedTotal - actualTotal) * 100) / 100;
@@ -476,7 +527,7 @@ export function buildLedgerPrintRows(
               rawAmount: rodUnload,
             });
           }
-          const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+          const shipToCustomer = shippingCostToCustomer;
           const rodShip = shipToCustomer ? Number(meta.rodShippingCost || 0) : 0;
           if (rodShip > 0) {
             totalAmount += rodShip;
@@ -522,7 +573,7 @@ export function buildLedgerPrintRows(
               rawAmount: cemUnload,
             });
           }
-          const shipToCustomer = meta.shippingCostToCustomerLedger !== false && (tx as any).shippingCostToCustomerLedger !== false;
+          const shipToCustomer = shippingCostToCustomer;
           const cemShip = shipToCustomer ? Number(meta.cementShippingCost || 0) : 0;
           if (cemShip > 0) {
             totalAmount += cemShip;
@@ -550,7 +601,7 @@ export function buildLedgerPrintRows(
           bill += invDiscount;
         }
         // Deduct labor and shipping so bill represents strictly the goods value
-        bill = Math.max(0, bill - (labCost + shipCost));
+        bill = Math.max(0, bill - (effectiveLabCost + effectiveShipCost));
         totalAmount += bill;
         rows.push({
           date: txDateStr,
@@ -564,40 +615,36 @@ export function buildLedgerPrintRows(
         });
       }
 
-      const isSupplierTx = txType === 'purchase' || isSupplier || !isCustomer;
-      const shipPayer = meta.shippingPayer || (tx as any).shippingPayer || 'shop';
-      const laborPayer = meta.laborPayer || (tx as any).laborPayer || 'shop';
-
       // Labor charge: Added to customer sales, or to supplier purchases if supplier pays/bills it (only for all-product view)
       if (categoryFilter === 'all') {
-        const shouldAddLabor = isSupplierTx ? (laborPayer === 'supplier' && labCost > 0) : (labCost > 0);
+        const shouldAddLabor = effectiveLabCost > 0;
         if (shouldAddLabor) {
-          totalAmount += labCost;
+          totalAmount += effectiveLabCost;
           rows.push({
             date: txDateStr,
             description: isSupplierTx ? 'আনলোডিং / লেবার খরচ (সাপ্লায়ার বহন করবে)' : 'লেবারি',
             quantity: '১.০',
-            rate: formatLedgerNum(labCost),
+            rate: formatLedgerNum(effectiveLabCost),
             deposit: '-',
-            amount: formatLedgerNum(labCost),
+            amount: formatLedgerNum(effectiveLabCost),
             rawDeposit: 0,
-            rawAmount: labCost,
+            rawAmount: effectiveLabCost,
           });
         }
 
-        // Transport / shipping charge
-        const shouldAddShipping = isSupplierTx ? (shipPayer === 'supplier' && shipCost > 0) : (shipCost > 0);
+        // Transport / shipping charge: Only added if party pays it (not if shop pays it)
+        const shouldAddShipping = effectiveShipCost > 0;
         if (shouldAddShipping) {
-          totalAmount += shipCost;
+          totalAmount += effectiveShipCost;
           rows.push({
             date: txDateStr,
             description: isSupplierTx ? 'গাড়ি ভাড়া / পরিবহন (সাপ্লায়ার বহন করবে)' : 'ভাড়া',
             quantity: '১.০',
-            rate: formatLedgerNum(shipCost),
+            rate: formatLedgerNum(effectiveShipCost),
             deposit: '-',
-            amount: formatLedgerNum(shipCost),
+            amount: formatLedgerNum(effectiveShipCost),
             rawDeposit: 0,
-            rawAmount: shipCost,
+            rawAmount: effectiveShipCost,
           });
         }
 
