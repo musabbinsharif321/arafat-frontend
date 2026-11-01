@@ -3246,9 +3246,15 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 const cSum = cItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                 const rSum = rItems.reduce((sum, i) => sum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
 
-                // খাঁটি পণ্যের দর * পরিমাণ যোগ করা
-                grossCementSalesAmount += cSum;
-                grossRodSalesAmount += rSum;
+                // খাতার নিয়ম অনুযায়ী: একক চালানে মোট বিল এবং যৌথ চালানে সিমেন্টের ঘরে শুধু সিমেন্টের দাম (cSum) ও বাকিটা রডের ঘরে যোগ করা
+                if (cSum > 0 && rSum === 0) {
+                  grossCementSalesAmount += orderTotal;
+                } else if (rSum > 0 && cSum === 0) {
+                  grossRodSalesAmount += orderTotal;
+                } else if (cSum > 0 && rSum > 0) {
+                  grossCementSalesAmount += cSum;
+                  grossRodSalesAmount += Math.max(0, orderTotal - cSum);
+                }
               });
 
               // Calculate Sales Returns breakdown for Cement and Rod (খাঁটি ফেরত মূল্য)
@@ -3753,7 +3759,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                               সিমেন্ট বিক্রয় বাবদ আয়
                               {cementReturnQty > 0 && (
                                 <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
-                                  (বিক্রি: {formatBnQty(grossCementSalesQty)} - ফেরত: {formatBnQty(cementReturnQty)})
+                                  (বিক্রি: {formatBnQty(grossCementSalesQty)} [{formatBnNumber(grossCementSalesAmount)} ৳] - ফেরত: {formatBnQty(cementReturnQty)} [{formatBnNumber(cementReturnAmount)} ৳])
                                 </span>
                               )}
                             </td>
@@ -3768,7 +3774,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                               রড বিক্রয় বাবদ আয়
                               {rodReturnQty > 0 && (
                                 <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
-                                  (বিক্রি: {formatBnQty(grossRodSalesQty)} - ফেরত: {formatBnQty(rodReturnQty)})
+                                  (বিক্রি: {formatBnQty(grossRodSalesQty)} [{formatBnNumber(grossRodSalesAmount)} ৳] - ফেরত: {formatBnQty(rodReturnQty)} [{formatBnNumber(rodReturnAmount)} ৳])
                                 </span>
                               )}
                             </td>
