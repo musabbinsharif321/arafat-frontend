@@ -3313,19 +3313,40 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
               // 3. Pure Cement & Rod Purchases (খাঁটি ক্রয় ব্যয়)
               let cementPurchaseQty = 0;
               let cementPurchaseAmount = 0;
+              let cementTruckFare = 0;
+              let cementUnloadLabor = 0;
+
               let rodPurchaseQty = 0;
               let rodPurchaseAmount = 0;
+              let rodTruckFare = 0;
+              let rodUnloadLabor = 0;
+
+              const purchaseInvoiceNos = new Set<string>();
 
               filteredPurchases.forEach(p => {
+                if (p.invoiceNo) purchaseInvoiceNos.add(p.invoiceNo);
                 const items = p.items || [];
                 const pTotal = Number(p.totalAmount) || 0;
+
+                let meta: any = {};
+                if (p.notes && typeof p.notes === 'string' && p.notes.startsWith('{')) {
+                  try {
+                    meta = JSON.parse(p.notes.split('\n')[0]);
+                  } catch (e) {}
+                }
+                const shipCost = Number(meta.shippingCost || (p as any).shippingCost || 0);
+                const labCost = Number(meta.laborCost || (p as any).laborCost || 0);
 
                 if (items.length === 0) {
                   const isCementPurchase = isCementProduct({ name: p.supplierName }) || (p.notes || '').toLowerCase().includes('সিমেন্ট') || (p.notes || '').toLowerCase().includes('cement');
                   if (isCementPurchase) {
                     cementPurchaseAmount += pTotal;
+                    cementTruckFare += shipCost;
+                    cementUnloadLabor += labCost;
                   } else {
                     rodPurchaseAmount += pTotal;
+                    rodTruckFare += shipCost;
+                    rodUnloadLabor += labCost;
                   }
                   return;
                 }
@@ -3350,42 +3371,57 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
 
                 cementPurchaseAmount += cSum;
                 rodPurchaseAmount += rSum;
+
+                if (cSum > 0 && rSum === 0) {
+                  cementTruckFare += shipCost;
+                  cementUnloadLabor += labCost;
+                } else if (rSum > 0 && cSum === 0) {
+                  rodTruckFare += shipCost;
+                  rodUnloadLabor += labCost;
+                } else if (cSum + rSum > 0) {
+                  const cRatio = cSum / (cSum + rSum);
+                  cementTruckFare += shipCost * cRatio;
+                  cementUnloadLabor += labCost * cRatio;
+                  rodTruckFare += shipCost * (1 - cRatio);
+                  rodUnloadLabor += labCost * (1 - cRatio);
+                }
               });
 
-              const cementTruckFare = filteredExpenses.filter(e => 
-                (e.title?.includes('সিমেন্ট') && (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('পরিবহন'))) || 
-                (e.category?.includes('সিমেন্ট গাড়ি') || e.category?.includes('সিমেন্ট পরিবহন'))
-              ).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+              // Add manual direct unload expenses from filteredExpenses & exclude direct purchase expenses from OPEX
+              const directExpIds = new Set<string>();
 
-              const cementUnloadLabor = filteredExpenses.filter(e => 
-                (e.title?.includes('সিমেন্ট') && (e.title?.includes('লেবার') || e.title?.includes('আনলোড') || e.title?.includes('লেভারি') || e.title?.includes('খালাস'))) || 
-                (e.category?.includes('সিমেন্ট আনলোড') || e.category?.includes('সিমেন্ট লেবার') || e.category?.includes('সিমেন্ট খালাস'))
-              ).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+              filteredExpenses.forEach(e => {
+                const title = e.title || '';
+                const cat = e.category || '';
+                
+                // Purchase direct auto-expenses (already counted from purchase header)
+                if (title.includes('ক্রয় চালান')) {
+                  directExpIds.add(e.id);
+                  return;
+                }
+                if (title.includes('পরিবহন / গাড়ি ভাড়া (চালান #')) {
+                  const isPur = Array.from(purchaseInvoiceNos).some(pinv => title.includes(pinv));
+                  if (isPur) {
+                    directExpIds.add(e.id);
+                    return;
+                  }
+                }
+
+                // Manual unload expenses
+                if (cat === 'সিমেন্ট আনলোড লেবারি' || (title.includes('সিমেন্ট আনলোড') && !title.includes('বিক্রয়'))) {
+                  cementUnloadLabor += Number(e.amount) || 0;
+                  directExpIds.add(e.id);
+                } else if (cat === 'রড আনলোড লেবারী' || (title.includes('রড আনলোড') && !title.includes('বিক্রয়'))) {
+                  rodUnloadLabor += Number(e.amount) || 0;
+                  directExpIds.add(e.id);
+                }
+              });
 
               const cementTotalDirectCost = cementPurchaseAmount + cementTruckFare + cementUnloadLabor;
-
-              // 4. Rod Direct Costs (রড ও রিং ক্রয় ও পরিবহন ব্যয়)
-              const rodTruckFare = filteredExpenses.filter(e => 
-                ((e.title?.includes('রড') || e.title?.includes('রিং')) && (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('পরিবহন'))) || 
-                (e.category?.includes('রড গাড়ি') || e.category?.includes('রড পরিবহন') || e.category?.includes('রিং পরিবহন'))
-              ).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-
-              const rodUnloadLabor = filteredExpenses.filter(e => 
-                ((e.title?.includes('রড') || e.title?.includes('রিং')) && (e.title?.includes('লেবার') || e.title?.includes('আনলোড') || e.title?.includes('লেভারি') || e.title?.includes('খালাস'))) || 
-                (e.category?.includes('রড আনলোড') || e.category?.includes('রড লেবার') || e.category?.includes('রিং লেবার') || e.category?.includes('রড খালাস'))
-              ).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-
               const rodTotalDirectCost = rodPurchaseAmount + rodTruckFare + rodUnloadLabor;
               const totalDirectCost = cementTotalDirectCost + rodTotalDirectCost;
 
               // 5. Operating Expenses (ব্যাবসা পরিচালন ব্যয়)
-              const directExpIds = new Set(
-                filteredExpenses.filter(e => 
-                  ((e.title?.includes('সিমেন্ট') || e.title?.includes('রড') || e.title?.includes('রিং')) && 
-                   (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('লেবার') || e.title?.includes('আনলোড') || e.title?.includes('খালাস')))
-                ).map(e => e.id)
-              );
-
               const operatingExpensesList = filteredExpenses.filter(e => !directExpIds.has(e.id));
               
               const categoryMap = new Map<string, number>();
