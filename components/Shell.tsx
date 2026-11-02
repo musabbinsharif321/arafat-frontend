@@ -60,10 +60,22 @@ export interface PendingOrderItem {
   stage?: string;
 }
 
+export interface HawlatPayment {
+  id: string;
+  amount: number;
+  date: string;
+  note?: string;
+  inflowTxId?: string | number;
+  createdAt: string;
+}
+
 export interface HawlatItem {
   id: string;
   personName: string;
   amount: number;
+  paidAmount?: number;
+  dueAmount?: number;
+  payments?: HawlatPayment[];
   note: string;
   date: string;
   isSettled?: boolean;
@@ -135,6 +147,9 @@ export function Shell({ children }: { children: ReactNode }) {
   });
   const [showAddHawlatForm, setShowAddHawlatForm] = useState(false);
   const [settlingHawlat, setSettlingHawlat] = useState<HawlatItem | null>(null);
+  const [settleAmountInput, setSettleAmountInput] = useState<string>('');
+  const [settleDateInput, setSettleDateInput] = useState<string>('');
+  const [settleNoteInput, setSettleNoteInput] = useState<string>('');
   const [isAddingHawlat, setIsAddingHawlat] = useState(false);
   const [isSettlingHawlat, setIsSettlingHawlat] = useState(false);
   const [hawlatFilterTab, setHawlatFilterTab] = useState<'all' | 'pending' | 'settled'>('all');
@@ -177,6 +192,8 @@ export function Shell({ children }: { children: ReactNode }) {
           let userNote = rawNote;
           let outflowTxId: string | number | undefined;
           let inflowTxId: string | number | undefined;
+          let paidAmount = 0;
+          let payments: HawlatPayment[] = [];
 
           if (rawNote.trim().startsWith('{')) {
             try {
@@ -188,18 +205,34 @@ export function Shell({ children }: { children: ReactNode }) {
               if (!userNote && meta.userNote) {
                 userNote = meta.userNote;
               }
+              if (Array.isArray(meta.payments)) {
+                payments = meta.payments;
+                paidAmount = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+              } else if (meta.paidAmount !== undefined) {
+                paidAmount = Number(meta.paidAmount) || 0;
+              }
             } catch (err) {
               console.error('Error parsing hawlat metadata:', err);
             }
           }
 
+          const totalAmount = Number(h.amount || 0);
+          if (h.is_settled && paidAmount === 0) {
+            paidAmount = totalAmount;
+          }
+          const dueAmount = Math.max(0, totalAmount - paidAmount);
+          const isSettled = Boolean(h.is_settled || (totalAmount > 0 && dueAmount <= 0.01));
+
           return {
             id: String(h.id),
             personName: h.person_name || 'সাধারণ হাওলাত',
-            amount: Number(h.amount || 0),
+            amount: totalAmount,
+            paidAmount,
+            dueAmount,
+            payments,
             note: userNote,
             date: h.date || format(new Date(), 'yyyy-MM-dd'),
-            isSettled: !!h.is_settled,
+            isSettled,
             settledAt: h.settled_at || undefined,
             createdAt: h.created_at || new Date().toISOString(),
             outflowTxId,
@@ -268,6 +301,9 @@ export function Shell({ children }: { children: ReactNode }) {
       id: `hw_${Date.now()}`,
       personName: pName,
       amount: numAmount,
+      paidAmount: 0,
+      dueAmount: numAmount,
+      payments: [],
       note: uNote,
       date: hawlatDate,
       isSettled: false,
@@ -278,6 +314,10 @@ export function Shell({ children }: { children: ReactNode }) {
     try {
       const notePayload = JSON.stringify({
         outflowTxId,
+        originalAmount: numAmount,
+        paidAmount: 0,
+        dueAmount: numAmount,
+        payments: [],
         userNote: uNote,
       }) + (uNote ? `\n${uNote}` : '');
 
@@ -310,29 +350,62 @@ export function Shell({ children }: { children: ReactNode }) {
     setIsAddingHawlat(false);
   };
 
+  const handleOpenSettleModal = (item: HawlatItem) => {
+    setSettlingHawlat(item);
+    const orig = item.amount || 0;
+    const paid = item.paidAmount || 0;
+    const due = item.dueAmount !== undefined ? item.dueAmount : Math.max(0, orig - paid);
+    setSettleAmountInput(due > 0 ? String(due) : String(orig));
+    setSettleDateInput(format(new Date(), 'yyyy-MM-dd'));
+    setSettleNoteInput('');
+  };
+
   const handleSettleHawlat = async (item: HawlatItem) => {
     if (isSettlingHawlat) return;
+
+    const payAmt = parseFloat(settleAmountInput);
+    if (isNaN(payAmt) || payAmt <= 0) {
+      toast.error('সঠিক টাকার পরিমাণ লিখুন');
+      return;
+    }
+
+    const orig = item.amount || 0;
+    const paidSoFar = item.paidAmount || 0;
+    const currentDue = item.dueAmount !== undefined ? item.dueAmount : Math.max(0, orig - paidSoFar);
+
+    if (payAmt > currentDue + 0.01) {
+      toast.error(`পরিশোধের পরিমাণ বাকি টাকার (৳ ${currentDue.toLocaleString('bn-BD')}) চেয়ে বেশি হতে পারবে না`);
+      return;
+    }
+
     setIsSettlingHawlat(true);
 
     try {
       // 1. Record payment_in transaction so Cash balance is immediately credited (+ cash)
       let inflowTxId: string | number | undefined;
+      const sDate = settleDateInput || format(new Date(), 'yyyy-MM-dd');
+      const uSettleNote = settleNoteInput.trim();
+
       try {
         const inTx = await api.transactions.create({
           party_name: `হাওলাত আদায় / ফেরত (${item.personName})`,
           transaction_type: 'payment_in',
-          total_amount: item.amount,
-          paid_amount: item.amount,
+          total_amount: payAmt,
+          paid_amount: payAmt,
           due_amount: 0,
           payment_method: 'cash',
+          created_at: sDate ? `${sDate}T12:00:00Z` : undefined,
           notes: JSON.stringify({
             isHawlat: true,
             hawlatType: 'settled',
             hawlatId: item.id,
             personName: item.personName,
             outflowTxId: item.outflowTxId,
-            userNote: item.note,
-          }) + (item.note ? `\n[হাওলাত আদায়/পরিশোধ] ${item.note}` : '\n[হাওলাত আদায়/পরিশোধ]')
+            paidAmountThisTime: payAmt,
+            originalAmount: orig,
+            hawlatSettleDate: sDate,
+            userNote: uSettleNote || item.note,
+          }) + (uSettleNote ? `\n[হাওলাত আদায়/পরিশোধ: ৳${payAmt.toLocaleString('bn-BD')}] ${uSettleNote}` : `\n[হাওলাত আদায়/পরিশোধ: ৳${payAmt.toLocaleString('bn-BD')}]`)
         });
         if (inTx && inTx.id) {
           inflowTxId = inTx.id;
@@ -343,18 +416,36 @@ export function Shell({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 2. Update Hawlat item via API
+      // 2. Compute updated payments, paidAmount, dueAmount and isSettled
+      const newPayment: HawlatPayment = {
+        id: `pay_${Date.now()}`,
+        amount: payAmt,
+        date: sDate,
+        note: uSettleNote || undefined,
+        inflowTxId,
+        createdAt: new Date().toISOString(),
+      };
+      const updatedPayments = [...(item.payments || []), newPayment];
+      const newPaidAmount = paidSoFar + payAmt;
+      const newDueAmount = Math.max(0, orig - newPaidAmount);
+      const isNowSettled = newDueAmount <= 0.01;
+
+      // 3. Update Hawlat item via API
       try {
         const notePayload = JSON.stringify({
           outflowTxId: item.outflowTxId,
-          inflowTxId,
+          inflowTxId: inflowTxId || item.inflowTxId,
+          originalAmount: orig,
+          paidAmount: newPaidAmount,
+          dueAmount: newDueAmount,
+          payments: updatedPayments,
           userNote: item.note,
         }) + (item.note ? `\n${item.note}` : '');
 
         if (!item.id.startsWith('hw_')) {
           await api.hawlats.update(item.id, {
-            is_settled: true,
-            settled_at: new Date().toISOString(),
+            is_settled: isNowSettled,
+            settled_at: isNowSettled ? new Date().toISOString() : undefined,
             note: notePayload
           });
         }
@@ -364,11 +455,24 @@ export function Shell({ children }: { children: ReactNode }) {
 
       const updated = hawlatItems.map(h => 
         h.id === item.id 
-          ? { ...h, isSettled: true, settledAt: new Date().toISOString(), inflowTxId } 
+          ? { 
+              ...h, 
+              paidAmount: newPaidAmount,
+              dueAmount: newDueAmount,
+              payments: updatedPayments,
+              isSettled: isNowSettled, 
+              settledAt: isNowSettled ? new Date().toISOString() : h.settledAt, 
+              inflowTxId: inflowTxId || h.inflowTxId 
+            } 
           : h
       );
       saveHawlatItems(updated);
-      toast.success(`৳ ${item.amount.toLocaleString('bn-BD')} টাকা হাওলাত পরিশোধ সম্পন্ন এবং ক্যাশে জমা হয়েছে!`);
+
+      if (isNowSettled) {
+        toast.success(`৳ ${payAmt.toLocaleString('bn-BD')} টাকা আদায় হয়েছে এবং হাওলাত সম্পূর্ণ পরিশোধিত হয়েছে!`);
+      } else {
+        toast.success(`৳ ${payAmt.toLocaleString('bn-BD')} টাকা আংশিক আদায় হয়েছে! অবশিষ্ট বাকি ৳ ${newDueAmount.toLocaleString('bn-BD')} টাকা।`);
+      }
       setSettlingHawlat(null);
 
       if (typeof window !== 'undefined') {
@@ -383,12 +487,23 @@ export function Shell({ children }: { children: ReactNode }) {
     const item = typeof itemOrId === 'string' ? hawlatItems.find(h => h.id === itemOrId) : itemOrId;
     const id = typeof itemOrId === 'string' ? itemOrId : itemOrId.id;
 
+    if (!confirm('আপনি কি নিশ্চিতভাবে এই হাওলাত এন্ট্রি মুছে ফেলতে চান?')) {
+      return;
+    }
+
     try {
       if (item?.outflowTxId) {
         await api.transactions.delete(item.outflowTxId).catch(err => console.warn('Could not delete outflow tx:', err));
       }
       if (item?.inflowTxId) {
         await api.transactions.delete(item.inflowTxId).catch(err => console.warn('Could not delete inflow tx:', err));
+      }
+      if (Array.isArray(item?.payments)) {
+        for (const p of item.payments) {
+          if (p.inflowTxId && p.inflowTxId !== item?.inflowTxId) {
+            await api.transactions.delete(p.inflowTxId).catch(err => console.warn('Could not delete payment inflow tx:', err));
+          }
+        }
       }
       if (!id.startsWith('hw_')) {
         await api.hawlats.delete(id);
@@ -407,8 +522,13 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const pendingHawlatItems = hawlatItems.filter(h => !h.isSettled);
   const settledHawlatItems = hawlatItems.filter(h => h.isSettled);
-  const pendingHawlatAmount = pendingHawlatItems.reduce((sum, item) => sum + (item.amount || 0), 0);
-  const settledHawlatAmount = settledHawlatItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const pendingHawlatAmount = pendingHawlatItems.reduce((sum, item) => {
+    const due = item.dueAmount !== undefined ? item.dueAmount : (item.amount - (item.paidAmount || 0));
+    return sum + Math.max(0, due);
+  }, 0);
+  const settledHawlatAmount = hawlatItems.reduce((sum, item) => {
+    return sum + (item.paidAmount || (item.isSettled ? item.amount : 0));
+  }, 0);
 
   const filteredHawlatItems = hawlatItems.filter(h => {
     if (hawlatFilterTab === 'pending') return !h.isSettled;
@@ -1770,54 +1890,96 @@ export function Shell({ children }: { children: ReactNode }) {
                           <tr>
                             <th className="py-2.5 px-3">তারিখ</th>
                             <th className="py-2.5 px-3">ব্যক্তি ও বিবরণ</th>
-                            <th className="py-2.5 px-3 text-right">পরিমাণ (৳)</th>
+                            <th className="py-2.5 px-3 text-right">হিসাব ও বাকি (৳)</th>
                             <th className="py-2.5 px-2 text-center">অবস্থা / অ্যাকশন</th>
                             <th className="py-2.5 px-1 text-center">মুছুন</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/80 font-bengali">
-                          {filteredHawlatItems.map((item) => (
-                            <tr key={item.id} className="hover:bg-slate-800/60 transition-colors group">
-                              <td className="py-3 px-3 align-top font-sans text-[11px] text-slate-400 whitespace-nowrap">
-                                {formatBnDate(item.date, 'dd/MM/yyyy')}
-                              </td>
-                              <td className="py-3 px-3 align-top">
-                                <p className="font-bold text-slate-100 text-sm group-hover:text-emerald-400 transition-colors">
-                                  {item.personName}
-                                </p>
-                                <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
-                                  {item.note}
-                                </p>
-                              </td>
-                              <td className="py-3 px-3 align-top text-right whitespace-nowrap font-black text-amber-400 text-sm">
-                                ৳ {item.amount.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="py-3 px-2 align-top text-center whitespace-nowrap">
-                                {item.isSettled ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                    পরিশোধিত
-                                  </span>
-                                ) : (
+                          {filteredHawlatItems.map((item) => {
+                            const originalAmt = item.amount || 0;
+                            const paidSoFar = item.paidAmount || 0;
+                            const currentDue = item.dueAmount !== undefined ? item.dueAmount : Math.max(0, originalAmt - paidSoFar);
+                            const isPartiallyPaid = !item.isSettled && paidSoFar > 0;
+
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-800/60 transition-colors group">
+                                <td className="py-3 px-3 align-top font-sans text-[11px] text-slate-400 whitespace-nowrap">
+                                  {formatBnDate(item.date, 'dd/MM/yyyy')}
+                                </td>
+                                <td className="py-3 px-3 align-top">
+                                  <p className="font-bold text-slate-100 text-sm group-hover:text-emerald-400 transition-colors">
+                                    {item.personName}
+                                  </p>
+                                  {item.note && (
+                                    <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
+                                      {item.note}
+                                    </p>
+                                  )}
+                                  {item.payments && item.payments.length > 0 && (
+                                    <p className="text-[10px] text-emerald-400/90 mt-1 font-medium">
+                                      সর্বশেষ আদায়: ৳ {item.payments[item.payments.length - 1].amount.toLocaleString('bn-BD')} ({formatBnDate(item.payments[item.payments.length - 1].date, 'dd/MM/yyyy')})
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="py-3 px-3 align-top text-right whitespace-nowrap">
+                                  <p className="font-black text-amber-400 text-sm">
+                                    ৳ {originalAmt.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}
+                                  </p>
+                                  {isPartiallyPaid ? (
+                                    <div className="text-[11px] mt-1 space-y-0.5">
+                                      <p className="text-emerald-400 font-semibold">
+                                        আদায়: ৳ {paidSoFar.toLocaleString('bn-BD')}
+                                      </p>
+                                      <p className="text-rose-400 font-bold">
+                                        বাকি: ৳ {currentDue.toLocaleString('bn-BD')}
+                                      </p>
+                                    </div>
+                                  ) : item.isSettled ? (
+                                    <p className="text-[11px] text-emerald-400 font-medium mt-0.5">
+                                      সম্পূর্ণ আদায়কৃত
+                                    </p>
+                                  ) : null}
+                                </td>
+                                <td className="py-3 px-2 align-top text-center whitespace-nowrap">
+                                  {item.isSettled ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                      পরিশোধিত
+                                    </span>
+                                  ) : isPartiallyPaid ? (
+                                    <div className="inline-flex flex-col items-center gap-1">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md">
+                                        বাকি ৳ {currentDue.toLocaleString('bn-BD')}
+                                      </span>
+                                      <button
+                                        onClick={() => handleOpenSettleModal(item)}
+                                        className="px-2.5 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all shadow-xs cursor-pointer"
+                                      >
+                                        বাকি আদায় করুন
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleOpenSettleModal(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold bg-amber-500/20 hover:bg-emerald-600 text-amber-300 hover:text-white border border-amber-500/30 hover:border-emerald-500 rounded-lg transition-all shadow-xs inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      পরিশোধ / আদায়
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="py-3 px-1 align-top text-center">
                                   <button
-                                    onClick={() => setSettlingHawlat(item)}
-                                    className="px-2.5 py-1 text-[11px] font-bold bg-amber-500/20 hover:bg-emerald-600 text-amber-300 hover:text-white border border-amber-500/30 hover:border-emerald-500 rounded-lg transition-all shadow-xs inline-flex items-center gap-1 cursor-pointer"
+                                    onClick={() => handleDeleteHawlat(item)}
+                                    title="মুছে ফেলুন"
+                                    className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
                                   >
-                                    পরিশোধ করুন
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
-                                )}
-                              </td>
-                              <td className="py-3 px-1 align-top text-center">
-                                <button
-                                  onClick={() => handleDeleteHawlat(item)}
-                                  title="মুছে ফেলুন"
-                                  className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1829,10 +1991,16 @@ export function Shell({ children }: { children: ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* Hawlat Settlement Confirmation Modal */}
+      {/* Hawlat Settlement Modal (Full & Partial Payment) */}
       <AnimatePresence>
-        {settlingHawlat && (
-          <>
+        {settlingHawlat && (() => {
+          const originalAmt = settlingHawlat.amount || 0;
+          const paidSoFar = settlingHawlat.paidAmount || 0;
+          const currentDue = settlingHawlat.dueAmount !== undefined ? settlingHawlat.dueAmount : Math.max(0, originalAmt - paidSoFar);
+          const payVal = parseFloat(settleAmountInput) || 0;
+          const remainingAfter = Math.max(0, currentDue - payVal);
+
+          return (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1847,38 +2015,125 @@ export function Shell({ children }: { children: ReactNode }) {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 max-w-sm w-full text-slate-100 shadow-2xl space-y-4"
+                className="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 max-w-md w-full text-slate-100 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
               >
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-500/30">
                     <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-base text-white">হাওলাত পরিশোধ নিশ্চিতকরণ</h3>
-                    <p className="text-xs text-slate-400">এই হাওলাতের টাকা কি আদায়/ফেরত পাওয়া গেছে?</p>
+                    <h3 className="font-bold text-base text-white">হাওলাত পরিশোধ / আদায়</h3>
+                    <p className="text-xs text-slate-400">সম্পূর্ণ অথবা আংশিক টাকা পরিশোধ এন্ট্রি দিন</p>
                   </div>
                 </div>
 
-                <div className="p-3 bg-slate-800/80 border border-slate-700/60 rounded-xl space-y-1.5 text-xs">
-                  <div className="flex justify-between">
+                <div className="p-3.5 bg-slate-800/80 border border-slate-700/60 rounded-xl space-y-2 text-xs">
+                  <div className="flex justify-between items-center">
                     <span className="text-slate-400">ব্যক্তি/গ্রাহক:</span>
-                    <span className="font-bold text-white">{settlingHawlat.personName}</span>
+                    <span className="font-bold text-white text-sm">{settlingHawlat.personName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">টাকার পরিমাণ:</span>
-                    <span className="font-black text-amber-400">৳ {settlingHawlat.amount.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">মূল হাওলাত:</span>
+                    <span className="font-bold text-slate-200">৳ {originalAmt.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</span>
                   </div>
-                  {settlingHawlat.note && (
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">বিবরণ:</span>
-                      <span className="text-slate-300 truncate max-w-[180px]">{settlingHawlat.note}</span>
+                  {paidSoFar > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">ইতিমধ্যে আদায়:</span>
+                      <span className="font-bold text-emerald-400">৳ {paidSoFar.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</span>
                     </div>
                   )}
+                  <div className="flex justify-between items-center pt-1 border-t border-slate-700/60">
+                    <span className="text-slate-300 font-bold">বর্তমান বাকি:</span>
+                    <span className="font-black text-amber-400 text-sm">৳ {currentDue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</span>
+                  </div>
                 </div>
 
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  নিশ্চিত করলে এই এন্ট্রিটি &quot;<span className="text-emerald-400 font-bold">পরিশোধিত</span>&quot; চিহ্নিত হবে এবং <span className="text-emerald-400 font-bold">৳ {settlingHawlat.amount.toLocaleString('bn-BD')} টাকা সরাসরি ক্যাশ ব্যালেন্সে যোগ (+ ইন)</span> হবে।
-                </p>
+                {/* Previous Payments History */}
+                {settlingHawlat.payments && settlingHawlat.payments.length > 0 && (
+                  <div className="p-2.5 bg-slate-950/40 border border-slate-800 rounded-xl space-y-1.5">
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">পূর্ববর্তী আদায়সমূহ ({settlingHawlat.payments.length}টি):</p>
+                    <div className="max-h-24 overflow-y-auto space-y-1">
+                      {settlingHawlat.payments.map((p, idx) => (
+                        <div key={p.id || idx} className="flex justify-between items-center text-[11px] text-slate-400 bg-slate-900/60 px-2 py-1 rounded">
+                          <span>{p.date ? formatBnDate(p.date, 'dd/MM/yyyy') : ''} {p.note ? `(${p.note})` : ''}</span>
+                          <span className="font-bold text-emerald-400">+ ৳ {p.amount.toLocaleString('bn-BD')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Amount Input with Quick Preset Buttons */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-300">
+                    আদায় / পরিশোধের পরিমাণ (৳) <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={settleAmountInput}
+                    onChange={(e) => setSettleAmountInput(e.target.value)}
+                    placeholder="টাকার পরিমাণ লিখুন"
+                    className="w-full px-3 py-2 text-sm bg-slate-800 border border-slate-700 rounded-xl text-white font-bold placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setSettleAmountInput(String(currentDue))}
+                      className="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      সম্পূর্ণ বাকি (৳ {currentDue.toLocaleString('bn-BD')})
+                    </button>
+                    {currentDue > 100 && (
+                      <button
+                        type="button"
+                        onClick={() => setSettleAmountInput(String(Math.round(currentDue / 2)))}
+                        className="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                      >
+                        অর্ধেক (৳ {Math.round(currentDue / 2).toLocaleString('bn-BD')})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Date and Note Inputs */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-300 font-medium mb-1">তারিখ</label>
+                    <BengaliDatePicker
+                      value={settleDateInput}
+                      onChange={(val) => setSettleDateInput(val)}
+                      placeholder="তারিখ নির্বাচন"
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-300 font-medium mb-1">মন্তব্য / নোট (ঐচ্ছিক)</label>
+                    <input
+                      type="text"
+                      value={settleNoteInput}
+                      onChange={(e) => setSettleNoteInput(e.target.value)}
+                      placeholder="যেমন: আংশিক ফেরত"
+                      className="w-full px-3 py-2 text-xs bg-slate-800 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Live Preview Info */}
+                <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-xl text-xs text-slate-300 leading-relaxed">
+                  {payVal > 0 ? (
+                    <>
+                      নিশ্চিত করলে <span className="text-emerald-400 font-bold">৳ {payVal.toLocaleString('bn-BD')} টাকা সরাসরি ক্যাশে জমা (+ ইন)</span> হবে।
+                      {remainingAfter > 0 ? (
+                        <> অবশিষ্ট <span className="text-amber-400 font-bold">৳ {remainingAfter.toLocaleString('bn-BD')} টাকা বকেয়া</span> হিসেবে থাকবে।</>
+                      ) : (
+                        <> হাওলাতটি <span className="text-emerald-400 font-bold">সম্পূর্ণ পরিশোধিত</span> হিসেবে চিহ্নিত হবে।</>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-slate-400">পরিশোধের পরিমাণ লিখুন।</span>
+                  )}
+                </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                   <Button
@@ -1892,9 +2147,9 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Button>
                   <Button
                     size="sm"
-                    disabled={isSettlingHawlat}
+                    disabled={isSettlingHawlat || payVal <= 0}
                     onClick={() => handleSettleHawlat(settlingHawlat)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 rounded-xl flex items-center gap-1.5"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-900/40"
                   >
                     {isSettlingHawlat ? (
                       <>
@@ -1902,14 +2157,14 @@ export function Shell({ children }: { children: ReactNode }) {
                         সংরক্ষণ হচ্ছে...
                       </>
                     ) : (
-                      'হ্যাঁ, পরিশোধিত নিশ্চিত করুন'
+                      'আদায় নিশ্চিত করুন'
                     )}
                   </Button>
                 </div>
               </motion.div>
             </motion.div>
-          </>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Shipping Charges Drawer (গাড়ি ভাড়া খাতা) */}

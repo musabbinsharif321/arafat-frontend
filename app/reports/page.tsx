@@ -625,13 +625,27 @@ function MasterReportsContent() {
       try {
         const hawlatList = await api.hawlats.list();
         const safeHawlatList = Array.isArray(hawlatList) ? hawlatList : [];
-        setHawlats(safeHawlatList.filter(h => !h.is_settled).map(h => ({
-          id: String(h.id),
-          personName: h.person_name || 'সাধারণ ব্যক্তি',
-          amount: Number(h.amount || 0),
-          note: h.note || '',
-          date: h.date || ''
-        })));
+        setHawlats(safeHawlatList.filter(h => !h.is_settled).map(h => {
+          const rawNote = h.note || '';
+          let due = Number(h.amount || 0);
+          if (rawNote.trim().startsWith('{')) {
+            try {
+              const meta = JSON.parse(rawNote.split('\n')[0]);
+              if (meta.dueAmount !== undefined) {
+                due = Number(meta.dueAmount);
+              } else if (meta.paidAmount !== undefined) {
+                due = Math.max(0, Number(h.amount || 0) - Number(meta.paidAmount));
+              }
+            } catch {}
+          }
+          return {
+            id: String(h.id),
+            personName: h.person_name || 'সাধারণ ব্যক্তি',
+            amount: due,
+            note: h.note || '',
+            date: h.date || ''
+          };
+        }));
       } catch (err) {
         console.error('Error fetching hawlats in reports:', err);
       }

@@ -172,10 +172,22 @@ export interface ExpenseData {
   notes?: string;
 }
 
+export interface HawlatPayment {
+  id: string;
+  amount: number;
+  date: string;
+  note?: string;
+  inflowTxId?: string | number;
+  createdAt?: string;
+}
+
 export interface HawlatData {
   id?: string | number;
   person_name: string;
   amount: number;
+  paid_amount?: number;
+  due_amount?: number;
+  payments?: HawlatPayment[];
   note?: string;
   date?: string;
   is_settled?: boolean;
