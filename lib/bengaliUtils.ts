@@ -174,11 +174,13 @@ export function parseProductDetails(item: {
       brandName = 'KSRM';
     } else if (name.includes('একেএস') || name.includes('এ কে এস')) {
       brandName = 'AKS';
+    } else if (name.includes('আরআরএম') || name.includes('আর আর এম')) {
+      brandName = 'RRM';
     }
 
     if (!brandName) {
       const knownBrands = [
-        'BSRM', 'SCRM TMX', 'SCRM', 'KSML', 'HKG', 'DSRM',
+        'BSRM', 'SCRM TMX', 'SCRM', 'KSML', 'HKG', 'DSRM', 'RRM',
         'Holcim Strong structure', 'Holcim Supercrete Plus', 'Holcim Supercrete', 'Holcim Coastal Guard', 'Holcim Waterprotect', 'King Brand', 'Aman',
         'KSRM', 'AKS', 'GPH Ispat', 'Anwar Ispat', 'RSRM', 'Baizid', 'Metrocem', 'SSRM',
         'শাহ সিমেন্ট', 'সেভেন রিংস', 'বসুন্ধরা সিমেন্ট', 'ফ্রেশ সিমেন্ট', 'ক্রাউন সিমেন্ট', 'প্রিমিয়ার সিমেন্ট',
@@ -327,7 +329,7 @@ export function formatProductName(name: string | undefined | null, category?: st
   const cat = (category || '').toLowerCase();
 
   // If Rod: Leave intact as requested
-  if (cat === 'রড' || cat.includes('rod') || (!cat && (lower.includes('রড') || lower.includes('bsrm') || lower.includes('scrm') || lower.includes('ksml') || lower.includes('hkg') || lower.includes('dsrm')))) {
+  if (cat === 'রড' || cat.includes('rod') || (!cat && (lower.includes('রড') || lower.includes('bsrm') || lower.includes('scrm') || lower.includes('ksml') || lower.includes('hkg') || lower.includes('dsrm') || lower.includes('rrm')))) {
     return str;
   }
 
@@ -463,6 +465,7 @@ export const isRodProduct = (item?: { name?: string; unit?: string; category?: s
     n.includes('কেএসএমএল') || n.includes('ksml') ||
     n.includes('এফএসএল') || n.includes('fsl') ||
     n.includes('ডিএসআরএম') || n.includes('dsrm') ||
+    n.includes('আরআরএম') || n.includes('rrm') ||
     n.includes('থার্মেক্স') || n.includes('thermax') ||
     n.includes('এইচকেজি') || n.includes('আইআরএমএল') || n.includes('আইআরএল')
   );

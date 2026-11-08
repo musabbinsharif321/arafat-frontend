@@ -89,6 +89,7 @@ const ROD_BRAND_OPTIONS = [
   'KSML',
   'HKG',
   'DSRM',
+  'RRM',
 ];
 
 const CEMENT_BRAND_OPTIONS = [
@@ -237,7 +238,8 @@ export function CascadingProductSelector({
         const isScrm = (bLower === 'scrm') && (pName.includes('এসসিআরএম') || pName.includes('এস সি আর এম'));
         const isKsrm = (bLower === 'ksrm') && (pName.includes('কেএসআরএম') || pName.includes('কে এস আর এম'));
         const isAks = (bLower === 'aks') && (pName.includes('একেএস') || pName.includes('এ কে এস'));
-        if (pBrand === bLower || pName.includes(bLower) || isBsrm || isScrm || isKsrm || isAks) {
+        const isRrm = (bLower === 'rrm') && (pName.includes('আরআরএম') || pName.includes('আর আর এম'));
+        if (pBrand === bLower || pName.includes(bLower) || isBsrm || isScrm || isKsrm || isAks || isRrm) {
           foundBrand = b;
           break;
         }
@@ -268,7 +270,8 @@ export function CascadingProductSelector({
         const name = p.name.toLowerCase();
         const isBsrmMatch = selectedBrand === 'BSRM' && (name.includes('বি এস আর এম') || name.includes('বিএসআরএম'));
         const isScrmMatch = selectedBrand === 'SCRM' && (name.includes('এসসিআরএম') || name.includes('এস সি আর এম'));
-        const matchesBrand = !selectedBrand || name.includes(selectedBrand.toLowerCase()) || (p.brand && p.brand.toLowerCase().includes(selectedBrand.toLowerCase())) || isBsrmMatch || isScrmMatch;
+        const isRrmMatch = selectedBrand === 'RRM' && (name.includes('আরআরএম') || name.includes('আর আর এম'));
+        const matchesBrand = !selectedBrand || name.includes(selectedBrand.toLowerCase()) || (p.brand && p.brand.toLowerCase().includes(selectedBrand.toLowerCase())) || isBsrmMatch || isScrmMatch || isRrmMatch;
         const matchesMm = name.includes(mm.toLowerCase()) || (mmNum ? (name.includes(`${mmNum}mm`) || name.includes(`${mmNum} মিলি`) || name.includes(`${mmNum} মি.লি`) || name.includes(`${mmNum} মি.মি`) || name.includes(`${mmNum}মিমি`)) : false);
         return matchesBrand && matchesMm;
       });
@@ -566,7 +569,8 @@ export function CascadingProductSelector({
         const mmMatches = (activeMm && pName.includes(activeMm.toLowerCase())) || (mmNum ? (pName.includes(`${mmNum}mm`) || pName.includes(`${mmNum} মিলি`) || pName.includes(`${mmNum} মি.লি`) || pName.includes(`${mmNum} মি.মি`) || pName.includes(`${mmNum}মিমি`)) : false);
         const isBsrmMatch = activeBrand === 'BSRM' && (pName.includes('বি এস আর এম') || pName.includes('বিএসআরএম'));
         const isScrmMatch = activeBrand === 'SCRM' && (pName.includes('এসসিআরএম') || pName.includes('এস সি আর এম'));
-        const brandMatches = !activeBrand || (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase()) || pName.includes(activeBrand.toLowerCase()) || isBsrmMatch || isScrmMatch;
+        const isRrmMatch = activeBrand === 'RRM' && (pName.includes('আরআরএম') || pName.includes('আর আর এম'));
+        const brandMatches = !activeBrand || (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase()) || pName.includes(activeBrand.toLowerCase()) || isBsrmMatch || isScrmMatch || isRrmMatch;
         if (pName === `${activeMm} ${activeBrand} রড`.toLowerCase() || pName === `${activeBrand} ${activeMm} রড`.toLowerCase()) return true;
         if (brandMatches && mmMatches) return true;
       }
@@ -610,7 +614,8 @@ export function CascadingProductSelector({
         const mmMatches = (activeMm && pName.includes(activeMm.toLowerCase())) || (mmNum ? (pName.includes(`${mmNum}mm`) || pName.includes(`${mmNum} মিলি`) || pName.includes(`${mmNum} মি.লি`) || pName.includes(`${mmNum} মি.মি`) || pName.includes(`${mmNum}মিমি`)) : false);
         const isBsrmMatch = activeBrand === 'BSRM' && (pName.includes('বি এস আর এম') || pName.includes('বিএসআরএম'));
         const isScrmMatch = activeBrand === 'SCRM' && (pName.includes('এসসিআরএম') || pName.includes('এস সি আর এম'));
-        const brandMatches = !activeBrand || (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase()) || pName.includes(activeBrand.toLowerCase()) || isBsrmMatch || isScrmMatch;
+        const isRrmMatch = activeBrand === 'RRM' && (pName.includes('আরআরএম') || pName.includes('আর আর এম'));
+        const brandMatches = !activeBrand || (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase()) || pName.includes(activeBrand.toLowerCase()) || isBsrmMatch || isScrmMatch || isRrmMatch;
         return Boolean(brandMatches && mmMatches);
       }
       if (category === 'সিমেন্ট') {
