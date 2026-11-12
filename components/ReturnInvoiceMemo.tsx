@@ -33,6 +33,24 @@ export interface ReturnInvoiceMemoProps {
     reason?: string;
     createdAt: any;
     operatorName?: string;
+    rodLaborCost?: number;
+    rodLaborRate?: number;
+    rodLoadingToCustomerLedger?: boolean;
+    rodUnloadingCost?: number;
+    rodUnloadingRate?: number;
+    rodUnloadingToCustomerLedger?: boolean;
+    cementLaborCost?: number;
+    cementLaborRate?: number;
+    cementLoadingToCustomerLedger?: boolean;
+    cementUnloadingCost?: number;
+    cementUnloadingRate?: number;
+    cementUnloadingToCustomerLedger?: boolean;
+    shippingCost?: number;
+    shippingCostToCustomerLedger?: boolean;
+    rodShippingRate?: number;
+    cementShippingRate?: number;
+    customerPayableCharges?: number;
+    shopPaidCharges?: number;
   };
   shopInfo?: {
     name?: string;
@@ -128,11 +146,12 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
   let totalNewTakenValue = Number(returnEntry.totalNewTakenValue || 0);
 
   const rawNote = (returnEntry as any).notes || returnEntry.reason || '';
+  let meta: any = {};
   if (rawNote && typeof rawNote === 'string' && rawNote.trim().startsWith('{')) {
     try {
       const idx = rawNote.indexOf('\n');
       const jsonStr = idx !== -1 ? rawNote.substring(0, idx) : rawNote;
-      const meta = JSON.parse(jsonStr);
+      meta = JSON.parse(jsonStr);
       if ((!newTakenItems || newTakenItems.length === 0) && meta.newTakenItems && Array.isArray(meta.newTakenItems)) {
         newTakenItems = meta.newTakenItems;
       }
@@ -142,11 +161,50 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
     } catch {}
   }
 
+  const rodLaborCost = Number(returnEntry.rodLaborCost ?? meta.rodLaborCost ?? 0);
+  const rodLaborRate = Number(returnEntry.rodLaborRate ?? meta.rodLaborRate ?? 0);
+  const rodLoadingToCustomerLedger = returnEntry.rodLoadingToCustomerLedger ?? meta.rodLoadingToCustomerLedger ?? true;
+
+  const rodUnloadingCost = Number(returnEntry.rodUnloadingCost ?? meta.rodUnloadingCost ?? 0);
+  const rodUnloadingRate = Number(returnEntry.rodUnloadingRate ?? meta.rodUnloadingRate ?? 0);
+  const rodUnloadingToCustomerLedger = returnEntry.rodUnloadingToCustomerLedger ?? meta.rodUnloadingToCustomerLedger ?? true;
+
+  const cementLaborCost = Number(returnEntry.cementLaborCost ?? meta.cementLaborCost ?? 0);
+  const cementLaborRate = Number(returnEntry.cementLaborRate ?? meta.cementLaborRate ?? 0);
+  const cementLoadingToCustomerLedger = returnEntry.cementLoadingToCustomerLedger ?? meta.cementLoadingToCustomerLedger ?? false;
+
+  const cementUnloadingCost = Number(returnEntry.cementUnloadingCost ?? meta.cementUnloadingCost ?? 0);
+  const cementUnloadingRate = Number(returnEntry.cementUnloadingRate ?? meta.cementUnloadingRate ?? 0);
+  const cementUnloadingToCustomerLedger = returnEntry.cementUnloadingToCustomerLedger ?? meta.cementUnloadingToCustomerLedger ?? true;
+
+  const shippingCost = Number(returnEntry.shippingCost ?? meta.shippingCost ?? 0);
+  const shippingCostToCustomerLedger = returnEntry.shippingCostToCustomerLedger ?? meta.shippingCostToCustomerLedger ?? true;
+
+  const customerPayableCharges = Number(returnEntry.customerPayableCharges ?? meta.customerPayableCharges ?? (
+    (rodLoadingToCustomerLedger ? rodLaborCost : 0) +
+    (rodUnloadingToCustomerLedger ? rodUnloadingCost : 0) +
+    (cementLoadingToCustomerLedger ? cementLaborCost : 0) +
+    (cementUnloadingToCustomerLedger ? cementUnloadingCost : 0) +
+    (shippingCostToCustomerLedger ? shippingCost : 0)
+  ));
+
+  const shopPaidCharges = Number(returnEntry.shopPaidCharges ?? meta.shopPaidCharges ?? (
+    (!rodLoadingToCustomerLedger ? rodLaborCost : 0) +
+    (!rodUnloadingToCustomerLedger ? rodUnloadingCost : 0) +
+    (!cementLoadingToCustomerLedger ? cementLaborCost : 0) +
+    (!cementUnloadingToCustomerLedger ? cementUnloadingCost : 0) +
+    (!shippingCostToCustomerLedger ? shippingCost : 0)
+  ));
+
+  const hasAnyCharges = rodLaborCost > 0 || rodUnloadingCost > 0 || cementLaborCost > 0 || cementUnloadingCost > 0 || shippingCost > 0;
+
   const totalReturnedValue = returnEntry.totalReturnValue || returnedItems.reduce((s, i) => s + (i.price * i.quantity), 0);
   if (totalNewTakenValue === 0 && newTakenItems.length > 0) {
     totalNewTakenValue = newTakenItems.reduce((s, i) => s + (Number(i.price || 0) * Number(i.quantity || 0)), 0);
   }
-  const netRefundValue = returnEntry.netRefundValue !== undefined ? returnEntry.netRefundValue : (totalReturnedValue - totalNewTakenValue);
+  const netRefundValue = returnEntry.netRefundValue !== undefined 
+    ? returnEntry.netRefundValue 
+    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : Math.max(0, totalReturnedValue - customerPayableCharges));
 
   const dueAdjusted = returnEntry.dueAdjusted || 0;
   const cashRefundPaid = returnEntry.cashRefundPaid || 0;
@@ -283,45 +341,96 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
           </div>
         </div>
 
-        {/* --- 4. NEW TAKEN ITEMS TABLE (IF EXCHANGE) --- */}
-        {newTakenItems.length > 0 && (
+        {/* --- 4. SHIPPING & LABOR CHARGES TABLE (IF ANY) --- */}
+        {hasAnyCharges && (
           <div className="space-y-2 pt-2 border-t border-slate-200">
-            <h3 className="text-xs font-black uppercase tracking-wider text-emerald-700">২. এক্সচেঞ্জে নতুন নেওয়া পণ্য (Exchange Taken Items)</h3>
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">২. পরিবহন ও লেবার খরচ (Shipping & Labor Charges)</h3>
             <table className="w-full text-xs sm:text-sm text-black border-collapse">
               <thead>
                 <tr className="border-y-2 border-black font-black text-left bg-slate-50">
                   <th className="py-2 px-1 text-center w-[8%]">#</th>
-                  <th className="py-2 px-2 text-left w-[48%]">পণ্যের বিবরণ</th>
-                  <th className="py-2 px-2 text-center w-[14%]">পরিমাণ</th>
-                  <th className="py-2 px-2 text-right w-[15%]">একক দর (৳)</th>
-                  <th className="py-2 px-2 text-right w-[15%]">মোট টাকা (৳)</th>
+                  <th className="py-2 px-2 text-left w-[42%]">খরচের খাত</th>
+                  <th className="py-2 px-2 text-center w-[18%]">রেট / বিবরণ</th>
+                  <th className="py-2 px-2 text-center w-[16%]">দায়ভার</th>
+                  <th className="py-2 px-2 text-right w-[16%]">পরিমাণ (৳)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {newTakenItems.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="py-2 px-1 text-center font-bold text-slate-600">
-                      {toBengaliDigits(idx + 1)}
+                {rodLaborCost > 0 && (
+                  <tr className="hover:bg-slate-50">
+                    <td className="py-1.5 px-1 text-center font-bold text-slate-600">১</td>
+                    <td className="py-1.5 px-2 font-bold">রড লোডিং লেবার চার্জ</td>
+                    <td className="py-1.5 px-2 text-center font-bold text-slate-600">
+                      {rodLaborRate > 0 ? `@ ৳${toBengaliDigits(rodLaborRate)}/কেজি` : '—'}
                     </td>
-                    <td className="py-2 px-2 text-left font-black text-slate-900">
-                      {item.name}
+                    <td className="py-1.5 px-2 text-center">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", rodLoadingToCustomerLedger ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")}>
+                        {rodLoadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
                     </td>
-                    <td className="py-2 px-2 text-center font-black">
-                      {toBengaliDigits(item.quantity)} {item.unit || 'পিস'}
-                    </td>
-                    <td className="py-2 px-2 text-right font-bold">
-                      ৳ {toBengaliDigits(item.price.toLocaleString('en-IN'))}
-                    </td>
-                    <td className="py-2 px-2 text-right font-black text-emerald-600">
-                      ৳ {toBengaliDigits((item.quantity * item.price).toLocaleString('en-IN'))}
-                    </td>
+                    <td className="py-1.5 px-2 text-right font-black">৳ {toBengaliDigits(rodLaborCost.toLocaleString('en-IN'))}</td>
                   </tr>
-                ))}
+                )}
+                {rodUnloadingCost > 0 && (
+                  <tr className="hover:bg-slate-50">
+                    <td className="py-1.5 px-1 text-center font-bold text-slate-600">২</td>
+                    <td className="py-1.5 px-2 font-bold">রড আনলোডিং লেবার চার্জ</td>
+                    <td className="py-1.5 px-2 text-center font-bold text-slate-600">
+                      {rodUnloadingRate > 0 ? `@ ৳${toBengaliDigits(rodUnloadingRate)}/কেজি` : '—'}
+                    </td>
+                    <td className="py-1.5 px-2 text-center">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", rodUnloadingToCustomerLedger ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")}>
+                        {rodUnloadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-black">৳ {toBengaliDigits(rodUnloadingCost.toLocaleString('en-IN'))}</td>
+                  </tr>
+                )}
+                {cementLaborCost > 0 && (
+                  <tr className="hover:bg-slate-50">
+                    <td className="py-1.5 px-1 text-center font-bold text-slate-600">৩</td>
+                    <td className="py-1.5 px-2 font-bold">সিমেন্ট লোডিং লেবার চার্জ</td>
+                    <td className="py-1.5 px-2 text-center font-bold text-slate-600">
+                      {cementLaborRate > 0 ? `@ ৳${toBengaliDigits(cementLaborRate)}/বস্তা` : '—'}
+                    </td>
+                    <td className="py-1.5 px-2 text-center">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", cementLoadingToCustomerLedger ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")}>
+                        {cementLoadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-black">৳ {toBengaliDigits(cementLaborCost.toLocaleString('en-IN'))}</td>
+                  </tr>
+                )}
+                {cementUnloadingCost > 0 && (
+                  <tr className="hover:bg-slate-50">
+                    <td className="py-1.5 px-1 text-center font-bold text-slate-600">৪</td>
+                    <td className="py-1.5 px-2 font-bold">সিমেন্ট আনলোডিং লেবার চার্জ</td>
+                    <td className="py-1.5 px-2 text-center font-bold text-slate-600">
+                      {cementUnloadingRate > 0 ? `@ ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা` : '—'}
+                    </td>
+                    <td className="py-1.5 px-2 text-center">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", cementUnloadingToCustomerLedger ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")}>
+                        {cementUnloadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-black">৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN'))}</td>
+                  </tr>
+                )}
+                {shippingCost > 0 && (
+                  <tr className="hover:bg-slate-50">
+                    <td className="py-1.5 px-1 text-center font-bold text-slate-600">৫</td>
+                    <td className="py-1.5 px-2 font-bold">পরিবহন / গাড়ি ভাড়া খরচ</td>
+                    <td className="py-1.5 px-2 text-center font-bold text-slate-600">গাড়ি ভাড়া</td>
+                    <td className="py-1.5 px-2 text-center">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", shippingCostToCustomerLedger ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")}>
+                        {shippingCostToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-black">৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN'))}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
-            <div className="flex justify-end pt-1 font-black text-xs text-emerald-700">
-              <span>মোট নতুন মালামাল মূল্য: ৳ {toBengaliDigits(totalNewTakenValue.toLocaleString('en-IN'))}</span>
-            </div>
           </div>
         )}
 
@@ -329,9 +438,9 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
         <div className="grid grid-cols-12 gap-4 items-start pt-2 text-black font-bold text-xs border-t-2 border-black">
           <div className="col-span-7 space-y-2">
             <div>
-              <p className="font-black text-[11px] text-slate-600">ফেরত মূল্য (কথায়):</p>
+              <p className="font-black text-[11px] text-slate-600">নিট রিফান্ড মূল্য (কথায়):</p>
               <p className="font-black text-sm pt-0.5">
-                {numberToBengaliWords(totalReturnedValue)} টাকা মাত্র।
+                {numberToBengaliWords(netRefundValue)} টাকা মাত্র।
               </p>
             </div>
           </div>
@@ -339,14 +448,14 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
           {/* Right Summary Box */}
           <div className="col-span-5 space-y-1.5 text-xs font-bold border-t border-b border-black py-2">
             <div className="flex justify-between items-center">
-              <span className="text-slate-700">মোট ফেরত মূল্য:</span>
+              <span className="text-slate-700">মোট ফেরত পণ্যের মূল্য:</span>
               <span className="font-black text-rose-600">৳ {toBengaliDigits(totalReturnedValue.toLocaleString('en-IN'))}</span>
             </div>
 
-            {totalNewTakenValue > 0 && (
-              <div className="flex justify-between items-center">
-                <span className="text-slate-700">নতুন নেওয়া মূল্য:</span>
-                <span className="font-black text-emerald-600">৳ {toBengaliDigits(totalNewTakenValue.toLocaleString('en-IN'))}</span>
+            {customerPayableCharges > 0 && (
+              <div className="flex justify-between items-center text-slate-700">
+                <span>লেবার ও পরিবহন (কাস্টমার প্রদেয়):</span>
+                <span className="font-black text-rose-700">- ৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
               </div>
             )}
 
@@ -366,6 +475,13 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
               <div className="flex justify-between items-center text-rose-700 font-black">
                 <span>ক্যাশ ফেরত প্রদান ({payMethodLabel}):</span>
                 <span className="font-black">৳ {toBengaliDigits(cashRefundPaid.toLocaleString('en-IN'))}</span>
+              </div>
+            )}
+
+            {shopPaidCharges > 0 && (
+              <div className="flex justify-between items-center text-[10px] text-amber-800 pt-1 border-t border-dashed border-slate-200">
+                <span>দোকান প্রদেয় লেবার/গাড়ি ভাড়া:</span>
+                <span className="font-bold">৳ {toBengaliDigits(shopPaidCharges.toLocaleString('en-IN'))} (দোকান বহন করেছে)</span>
               </div>
             )}
           </div>

@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Shell } from '@/components/Shell';
 import { api, TransactionData } from '@/lib/api';
 import { 
   RotateCcw, Search, Plus, Package, User, DollarSign, FileText, X, 
   ShoppingCart, AlertCircle, Trash2, ArrowRight, CheckCircle2, RefreshCw, Calendar,
   Filter, ChevronUp, ChevronDown, ArrowLeft, Lightbulb, Printer, Edit2, Eye, Receipt,
-  Check, ShieldAlert, Sparkles, ChevronLeft, ChevronRight, Banknote, CreditCard
+  Check, ShieldAlert, Sparkles, ChevronLeft, ChevronRight, Banknote, CreditCard, Truck
 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { toBengaliDigits, formatProductName } from '@/lib/bengaliUtils';
+import { toBengaliDigits, toEnglishDigits, formatProductName } from '@/lib/bengaliUtils';
 import { CustomerSearchSelect } from '@/components/CustomerSearchSelect';
 import { CascadingProductSelector, SelectedProductDetails } from '@/components/CascadingProductSelector';
 import { ReturnInvoiceMemo } from '@/components/ReturnInvoiceMemo';
@@ -30,27 +30,78 @@ import { printElement } from '@/lib/printUtils';
 import { TableRowActionMenu } from '@/components/TableRowActionMenu';
 import { useAuth } from '@/lib/authContext';
 
+// Helpers for safe decimal inputs with Bengali numerals and preserving decimal points
+const toBengaliInputDigits = (val: string): string => {
+  if (!val) return '';
+  const bnDigits: Record<string, string> = {
+    '0': '০', '1': '১', '2': '২', '3': '৩', '4': '৪',
+    '5': '৫', '6': '৬', '7': '৭', '8': '৮', '9': '৯'
+  };
+  return val.replace(/[0-9]/g, m => bnDigits[m] || m);
+};
+
+const formatDecimalInput = (val: string): string => {
+  if (!val) return '';
+  const en = toEnglishDigits(val).replace(/[।\,]/g, '.');
+  const clean = en.replace(/[^0-9.]/g, '');
+  if (clean === '') return '';
+  
+  const parts = clean.split('.');
+  let normalized = parts[0];
+  if (parts.length > 1) {
+    if (normalized === '') normalized = '0';
+    normalized += '.' + parts.slice(1).join('');
+  }
+  return toBengaliInputDigits(normalized);
+};
+
+const parseInputNumber = (val: string | number | undefined | null): number => {
+  if (val === undefined || val === null || val === '') return 0;
+  const en = toEnglishDigits(String(val)).replace(/[^0-9.]/g, '');
+  const n = parseFloat(en);
+  return isNaN(n) ? 0 : n;
+};
+
 interface ReturnEntry {
   id: string;
   invoiceNo?: string;
   customerName: string;
   customerId: string;
   totalReturnValue: number;
-  totalNewTakenValue: number;
+  totalNewTakenValue?: number;
   netRefundValue: number;
   dueAdjusted: number;
   cashRefundPaid: number;
   paymentMethod?: string;
   bankAccountId?: string;
   returnedItems: ReturnItem[];
-  newTakenItems: ReturnItem[];
+  newTakenItems?: ReturnItem[];
   reason: string;
   status?: string;
   createdAt: any;
+  rodLaborRate?: number;
+  rodLaborCost?: number;
+  rodLoadingToCustomerLedger?: boolean;
+  rodUnloadingRate?: number;
+  rodUnloadingCost?: number;
+  rodUnloadingToCustomerLedger?: boolean;
+  cementLaborRate?: number;
+  cementLaborCost?: number;
+  cementLoadingToCustomerLedger?: boolean;
+  cementUnloadingRate?: number;
+  cementUnloadingCost?: number;
+  cementUnloadingToCustomerLedger?: boolean;
+  shippingCost?: number;
+  shippingCostToCustomerLedger?: boolean;
+  rodShippingRate?: number;
+  cementShippingRate?: number;
+  customerPayableCharges?: number;
+  shopPaidCharges?: number;
 }
 
 interface ReturnItem {
   id: string;
+  productId?: number | null;
   name: string;
   quantity: number;
   maxQuantity?: number;
@@ -119,18 +170,103 @@ export default function SalesReturnsPage() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [returnCart, setReturnCart] = useState<ReturnItem[]>([]);
-  const [newTakenCart, setNewTakenCart] = useState<ReturnItem[]>([]);
 
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [itemCondition, setItemCondition] = useState<'good' | 'damaged'>('good');
 
-  // New Taken / Exchange Selector Helpers
-  const [selectedCascadingNewProduct, setSelectedCascadingNewProduct] = useState<SelectedProductDetails | null>(null);
-  const [newProdId, setNewProdId] = useState('');
-  const [newQty, setNewQty] = useState(1);
-  const [newPrice, setNewPrice] = useState(0);
+  // Rate-based vs manual extra charge states (Matching sales invoices)
+  const [chargeCalcMode, setChargeCalcMode] = useState<'rate' | 'manual'>('rate');
+  const [rodLaborRateInput, setRodLaborRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_labor_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [rodLoadingToCustomerLedger, setRodLoadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_loading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
+  const [rodUnloadingRateInput, setRodUnloadingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_unloading_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [rodUnloadingToCustomerLedger, setRodUnloadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_unloading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
+  const [cementLaborRateInput, setCementLaborRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_labor_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [cementLoadingToCustomerLedger, setCementLoadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_loading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return false;
+  });
+  const [cementUnloadingRateInput, setCementUnloadingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_unloading_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [cementUnloadingToCustomerLedger, setCementUnloadingToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_unloading_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
+  const [shippingCostToCustomerLedger, setShippingCostToCustomerLedger] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_shipping_to_customer');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
+  const [shippingCostInput, setShippingCostInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_shipping_cost');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [rodShippingRateInput, setRodShippingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_rod_shipping_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+  const [cementShippingRateInput, setCementShippingRateInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dokan_sales_cement_shipping_rate');
+      return saved ? formatDecimalInput(saved) : '';
+    }
+    return '';
+  });
+
+  const [rodLaborTotalInput, setRodLaborTotalInput] = useState<string>('');
+  const [rodUnloadingTotalInput, setRodUnloadingTotalInput] = useState<string>('');
+  const [cementLaborTotalInput, setCementLaborTotalInput] = useState<string>('');
+  const [cementUnloadingTotalInput, setCementUnloadingTotalInput] = useState<string>('');
 
   const [reason, setReason] = useState('');
   const [cashRefundInput, setCashRefundInput] = useState(0);
@@ -221,14 +357,32 @@ export default function SalesReturnsPage() {
 
     invoice.items.forEach((item: any, idx: number) => {
       const soldQty = Number(item.quantity || 1);
-      const alreadyReturned = getAlreadyReturnedQty(invoice.invoice_no, item.product || item.id, item.product_name || item.name, editingReturn?.id);
+
+      // Resolve valid Product ID if one exists in products list
+      const rawProdId = (item.product && typeof item.product === 'object')
+        ? item.product.id
+        : item.product;
+
+      let validProdId: number | null = null;
+      if (rawProdId && !isNaN(Number(rawProdId)) && products.some(p => Number(p.id) === Number(rawProdId))) {
+        validProdId = Number(rawProdId);
+      } else {
+        const cleanName = cleanProdName(item.product_name || item.name);
+        const matched = products.find(p => cleanProdName(p.name) === cleanName);
+        if (matched) {
+          validProdId = Number(matched.id);
+        }
+      }
+
+      const alreadyReturned = getAlreadyReturnedQty(invoice.invoice_no, validProdId || item.product_name || item.name, item.product_name || item.name, editingReturn?.id);
       const remainingReturnable = Math.max(0, soldQty - alreadyReturned);
 
       if (remainingReturnable <= 0) {
         zeroRemainingCount++;
       } else {
         mapped.push({
-          id: String(item.product || item.id || `ret-${idx}`),
+          id: `ret-item-${idx}-${item.id || Date.now()}`,
+          productId: validProdId,
           name: formatProductName(item.product_name || item.name),
           quantity: remainingReturnable,
           maxQuantity: remainingReturnable,
@@ -287,15 +441,63 @@ export default function SalesReturnsPage() {
     };
   }, [selectedCustomerId, editingReturn, loadInvoiceItemsIntoReturnCart]);
 
+  const resetChargeInputs = () => {
+    if (typeof window !== 'undefined') {
+      const rLabor = localStorage.getItem('dokan_sales_rod_labor_rate');
+      setRodLaborRateInput(rLabor ? formatDecimalInput(rLabor) : '');
+      const rLoadCust = localStorage.getItem('dokan_sales_rod_loading_to_customer');
+      setRodLoadingToCustomerLedger(rLoadCust !== null ? rLoadCust === 'true' : true);
+      const rUnload = localStorage.getItem('dokan_sales_rod_unloading_rate');
+      setRodUnloadingRateInput(rUnload ? formatDecimalInput(rUnload) : '');
+      const rUnloadCust = localStorage.getItem('dokan_sales_rod_unloading_to_customer');
+      setRodUnloadingToCustomerLedger(rUnloadCust !== null ? rUnloadCust === 'true' : true);
+      const cLabor = localStorage.getItem('dokan_sales_cement_labor_rate');
+      setCementLaborRateInput(cLabor ? formatDecimalInput(cLabor) : '');
+      const cLoadCust = localStorage.getItem('dokan_sales_cement_loading_to_customer');
+      setCementLoadingToCustomerLedger(cLoadCust !== null ? cLoadCust === 'true' : false);
+      const cUnload = localStorage.getItem('dokan_sales_cement_unloading_rate');
+      setCementUnloadingRateInput(cUnload ? formatDecimalInput(cUnload) : '');
+      const cUnloadCust = localStorage.getItem('dokan_sales_cement_unloading_to_customer');
+      setCementUnloadingToCustomerLedger(cUnloadCust !== null ? cUnloadCust === 'true' : true);
+      const shipCust = localStorage.getItem('dokan_sales_shipping_to_customer');
+      setShippingCostToCustomerLedger(shipCust !== null ? shipCust === 'true' : true);
+      const rShip = localStorage.getItem('dokan_sales_rod_shipping_rate');
+      setRodShippingRateInput(rShip ? formatDecimalInput(rShip) : '');
+      const cShip = localStorage.getItem('dokan_sales_cement_shipping_rate');
+      setCementShippingRateInput(cShip ? formatDecimalInput(cShip) : '');
+      setShippingCostInput('');
+    }
+    setRodLaborTotalInput('');
+    setRodUnloadingTotalInput('');
+    setCementLaborTotalInput('');
+    setCementUnloadingTotalInput('');
+  };
+
   const handleEditReturn = (entry: ReturnEntry) => {
     setEditingReturn(entry);
     setSelectedCustomerId(entry.customerId || '');
     setReturnCart(entry.returnedItems || []);
-    setNewTakenCart(entry.newTakenItems || []);
     setReason(entry.reason || '');
     setCashRefundPaidInput(entry.cashRefundPaid || 0);
     setPaymentMethod(((entry.paymentMethod as any) || 'cash'));
     setBankAccountId(entry.bankAccountId || '');
+    if (entry.rodLaborRate !== undefined) setRodLaborRateInput(formatDecimalInput(String(entry.rodLaborRate)));
+    if (entry.rodLaborCost !== undefined) setRodLaborTotalInput(formatDecimalInput(String(entry.rodLaborCost)));
+    if (entry.rodLoadingToCustomerLedger !== undefined) setRodLoadingToCustomerLedger(entry.rodLoadingToCustomerLedger);
+    if (entry.rodUnloadingRate !== undefined) setRodUnloadingRateInput(formatDecimalInput(String(entry.rodUnloadingRate)));
+    if (entry.rodUnloadingCost !== undefined) setRodUnloadingTotalInput(formatDecimalInput(String(entry.rodUnloadingCost)));
+    if (entry.rodUnloadingToCustomerLedger !== undefined) setRodUnloadingToCustomerLedger(entry.rodUnloadingToCustomerLedger);
+    if (entry.cementLaborRate !== undefined) setCementLaborRateInput(formatDecimalInput(String(entry.cementLaborRate)));
+    if (entry.cementLaborCost !== undefined) setCementLaborTotalInput(formatDecimalInput(String(entry.cementLaborCost)));
+    if (entry.cementLoadingToCustomerLedger !== undefined) setCementLoadingToCustomerLedger(entry.cementLoadingToCustomerLedger);
+    if (entry.cementUnloadingRate !== undefined) setCementUnloadingRateInput(formatDecimalInput(String(entry.cementUnloadingRate)));
+    if (entry.cementUnloadingCost !== undefined) setCementUnloadingTotalInput(formatDecimalInput(String(entry.cementUnloadingCost)));
+    if (entry.cementUnloadingToCustomerLedger !== undefined) setCementUnloadingToCustomerLedger(entry.cementUnloadingToCustomerLedger);
+    if (entry.shippingCost !== undefined) setShippingCostInput(formatDecimalInput(String(entry.shippingCost)));
+    if (entry.shippingCostToCustomerLedger !== undefined) setShippingCostToCustomerLedger(entry.shippingCostToCustomerLedger);
+    if (entry.rodShippingRate !== undefined) setRodShippingRateInput(formatDecimalInput(String(entry.rodShippingRate)));
+    if (entry.cementShippingRate !== undefined) setCementShippingRateInput(formatDecimalInput(String(entry.cementShippingRate)));
+
     if ((entry.cashRefundPaid || 0) > 0 && (entry.dueAdjusted || 0) > 0) {
       setSettlementMode('custom');
     } else if ((entry.cashRefundPaid || 0) > 0) {
@@ -364,20 +566,10 @@ export default function SalesReturnsPage() {
           }
         }
 
-        const newItems: ReturnItem[] = (meta.newTakenItems || []).map((i: any) => ({
-          id: String(i.id || i.product || ''),
-          name: formatProductName(i.name || i.product_name),
-          quantity: Number(i.quantity || 1),
-          price: Number(i.price || 0),
-          unit: i.unit || 'পিস'
-        }));
-
-        const calcNewTakenVal = meta.totalNewTakenValue !== undefined 
-          ? Number(meta.totalNewTakenValue) 
-          : newItems.reduce((s, i) => s + (i.price * i.quantity), 0);
-
         const totalRetVal = Number(r.total_amount || 0);
-        const netRefund = meta.netRefundValue !== undefined ? Number(meta.netRefundValue) : (totalRetVal - calcNewTakenVal);
+        const netRefund = meta.netRefundValue !== undefined 
+          ? Number(meta.netRefundValue) 
+          : (totalRetVal - Number(meta.customerPayableCharges || 0));
 
         let invoiceNo = meta.invoiceNo;
         if (!invoiceNo && r.notes) {
@@ -400,7 +592,6 @@ export default function SalesReturnsPage() {
           customerName: r.party_name || 'সাধারণ গ্রাহক',
           customerId: String(r.party || ''),
           totalReturnValue: totalRetVal,
-          totalNewTakenValue: calcNewTakenVal,
           netRefundValue: netRefund,
           dueAdjusted: Number(r.due_amount || 0),
           cashRefundPaid: Number(r.paid_amount || 0),
@@ -408,15 +599,33 @@ export default function SalesReturnsPage() {
           bankAccountId: (r as any).bank_account ? String((r as any).bank_account) : '',
           status: r.status || 'pending',
           returnedItems: (r.items || []).map(i => ({
-            id: String(i.product || ''),
+            id: String(i.product || i.id || ''),
+            productId: i.product ? Number(i.product) : null,
             name: i.product_name,
             quantity: Number(i.quantity),
             price: Number(i.price),
             unit: i.unit || 'পিস'
           })),
-          newTakenItems: newItems,
           reason: cleanReason,
-          createdAt: r.created_at
+          createdAt: r.created_at,
+          rodLaborRate: meta.rodLaborRate,
+          rodLaborCost: meta.rodLaborCost,
+          rodLoadingToCustomerLedger: meta.rodLoadingToCustomerLedger,
+          rodUnloadingRate: meta.rodUnloadingRate,
+          rodUnloadingCost: meta.rodUnloadingCost,
+          rodUnloadingToCustomerLedger: meta.rodUnloadingToCustomerLedger,
+          cementLaborRate: meta.cementLaborRate,
+          cementLaborCost: meta.cementLaborCost,
+          cementLoadingToCustomerLedger: meta.cementLoadingToCustomerLedger,
+          cementUnloadingRate: meta.cementUnloadingRate,
+          cementUnloadingCost: meta.cementUnloadingCost,
+          cementUnloadingToCustomerLedger: meta.cementUnloadingToCustomerLedger,
+          shippingCost: meta.shippingCost,
+          shippingCostToCustomerLedger: meta.shippingCostToCustomerLedger,
+          rodShippingRate: meta.rodShippingRate,
+          cementShippingRate: meta.cementShippingRate,
+          customerPayableCharges: meta.customerPayableCharges,
+          shopPaidCharges: meta.shopPaidCharges
         };
       });
 
@@ -470,15 +679,30 @@ export default function SalesReturnsPage() {
     const itemName = invItem.product_name || invItem.name;
     if (!itemName) return;
 
+    const rawProdId = (invItem.product && typeof invItem.product === 'object')
+      ? invItem.product.id
+      : invItem.product;
+
+    let validProdId: number | null = null;
+    if (rawProdId && !isNaN(Number(rawProdId)) && products.some(p => Number(p.id) === Number(rawProdId))) {
+      validProdId = Number(rawProdId);
+    } else {
+      const cleanName = cleanProdName(itemName);
+      const matched = products.find(p => cleanProdName(p.name) === cleanName);
+      if (matched) {
+        validProdId = Number(matched.id);
+      }
+    }
+
     const existingIdx = returnCart.findIndex(i => i.name === itemName && i.condition === itemCondition);
     if (existingIdx > -1) {
       const updated = [...returnCart];
       updated[existingIdx].quantity += 1;
       setReturnCart(updated);
     } else {
-      const fallbackId = `ret-${invItem.id || invItem.name || returnCart.length + 1}`;
       setReturnCart([...returnCart, {
-        id: String(invItem.product || invItem.id || fallbackId),
+        id: `ret-item-${returnCart.length + 1}-${Date.now()}`,
+        productId: validProdId,
         name: itemName,
         quantity: 1,
         price: Number(invItem.price || 0),
@@ -490,52 +714,166 @@ export default function SalesReturnsPage() {
     toast.success(`"${itemName}" ফেরত তালিকায় যুক্ত হয়েছে`);
   };
 
-  // Add Item to New Taken Items Cart
-  const handleAddNewItem = () => {
-    const itemName = selectedCascadingNewProduct?.name || products.find(p => p.id === newProdId)?.name;
-    if (!itemName) {
-      toast.error('নতুন নেওয়া পণ্য নির্বাচন করুন');
-      return;
-    }
-
-    const itemUnitToUse = selectedCascadingNewProduct?.unit || products.find(p => p.id === newProdId)?.unit || 'পিস';
-    const itemId = String(selectedCascadingNewProduct?.productId || newProdId || `new-${newTakenCart.length + 1}`);
-    const finalPrice = newPrice || selectedCascadingNewProduct?.price || 0;
-
-    const stockAvailable = selectedCascadingNewProduct?.stock ?? products.find(p => p.id === newProdId)?.stock ?? 99999;
-    if (newQty > stockAvailable) {
-      toast.error(`স্টকে পর্যাপ্ত পণ্য নেই (মজুদ: ${stockAvailable})`);
-      return;
-    }
-
-    const existingIdx = newTakenCart.findIndex(i => i.name === itemName);
-    if (existingIdx > -1) {
-      const updated = [...newTakenCart];
-      updated[existingIdx].quantity += newQty;
-      updated[existingIdx].price = finalPrice;
-      setNewTakenCart(updated);
-    } else {
-      setNewTakenCart([...newTakenCart, {
-        id: itemId,
-        name: itemName,
-        quantity: newQty,
-        price: finalPrice,
-        unit: itemUnitToUse
-      }]);
-    }
-    setNewProdId('');
-    setNewQty(1);
-    setNewPrice(0);
-    toast.success('নতুন পণ্য যোগ করা হয়েছে');
-  };
-
   // Safe rounding helper to prevent float precision digit overflow
   const round2 = (num: any) => Math.round((Number(num) || 0) * 100) / 100;
 
+  // Category-specific quantity calculations (Rod/Ring in KG, Cement in Bags)
+  const rodRingTotalKg = useMemo(() => {
+    return round2(returnCart.reduce((sum, item) => {
+      const isRod = (item.unit || '').includes('কেজি') || 
+        (item.unit || '').toLowerCase().includes('kg') || 
+        (item.unit || '').includes('টন') || 
+        (item.unit || '').toLowerCase().includes('ton') || 
+        (item.name || '').includes('রড') || 
+        (item.name || '').includes('মিলি') || 
+        (item.name || '').includes('মি.লি') || 
+        (item.name || '').includes('মি.মি') || 
+        (item.name || '').includes('মিমি');
+      const isRing = (item.name || '').includes('রিং') || 
+        (item.name || '').toLowerCase().includes('ring');
+      if (isRod || isRing) {
+        const isTon = (item.unit || '').toLowerCase().includes('ton') || (item.unit || '').includes('টন');
+        return sum + (Number(item.quantity) || 0) * (isTon ? 1000 : 1);
+      }
+      return sum;
+    }, 0));
+  }, [returnCart]);
+
+  const cementTotalBags = useMemo(() => {
+    return round2(returnCart.reduce((sum, item) => {
+      const isCement = (item.unit || '').includes('বস্তা') || 
+        (item.unit || '').includes('ব্যাগ') || 
+        (item.unit || '').toLowerCase().includes('bag') || 
+        (item.name || '').includes('সিমেন্ট') || 
+        (item.name || '').toLowerCase().includes('cement');
+      if (isCement) {
+        return sum + (Number(item.quantity) || 0);
+      }
+      return sum;
+    }, 0));
+  }, [returnCart]);
+
+  const rodLaborRate = parseInputNumber(rodLaborRateInput);
+  const rodUnloadingRate = parseInputNumber(rodUnloadingRateInput);
+  const cementLaborRate = parseInputNumber(cementLaborRateInput);
+  const cementUnloadingRate = parseInputNumber(cementUnloadingRateInput);
+  const rodShippingRate = parseInputNumber(rodShippingRateInput);
+  const cementShippingRate = parseInputNumber(cementShippingRateInput);
+  const shippingCost = parseInputNumber(shippingCostInput);
+
+  // Reactive automatic rate * quantity calculations
+  const rodLaborAuto = round2(rodRingTotalKg * (rodLaborRate || 0));
+  const rodLaborTotal = chargeCalcMode === 'rate'
+    ? (rodRingTotalKg > 0
+        ? (rodLaborTotalInput !== '' ? parseInputNumber(rodLaborTotalInput) : rodLaborAuto)
+        : 0)
+    : 0;
+  
+  const rodUnloadingAuto = round2(rodRingTotalKg * (rodUnloadingRate || 0));
+  const rodUnloadingTotal = chargeCalcMode === 'rate'
+    ? (rodRingTotalKg > 0
+        ? (rodUnloadingTotalInput !== '' ? parseInputNumber(rodUnloadingTotalInput) : rodUnloadingAuto)
+        : 0)
+    : 0;
+
+  const cementLaborAuto = round2(cementTotalBags * (cementLaborRate || 0));
+  const cementLaborTotal = chargeCalcMode === 'rate'
+    ? (cementTotalBags > 0
+        ? (cementLaborTotalInput !== '' ? parseInputNumber(cementLaborTotalInput) : cementLaborAuto)
+        : 0)
+    : 0;
+
+  const cementUnloadingAuto = round2(cementTotalBags * (cementUnloadingRate || 0));
+  const cementUnloadingTotal = chargeCalcMode === 'rate'
+    ? (cementTotalBags > 0
+        ? (cementUnloadingTotalInput !== '' ? parseInputNumber(cementUnloadingTotalInput) : cementUnloadingAuto)
+        : 0)
+    : 0;
+
+  const handleRodLaborRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setRodLaborRateInput(formatted);
+    setRodLaborTotalInput('');
+  };
+
+  const handleRodUnloadingRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setRodUnloadingRateInput(formatted);
+    setRodUnloadingTotalInput('');
+  };
+
+  const handleCementLaborRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setCementLaborRateInput(formatted);
+    setCementLaborTotalInput('');
+  };
+
+  const handleCementUnloadingRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setCementUnloadingRateInput(formatted);
+    setCementUnloadingTotalInput('');
+  };
+
+  const handleRodShippingRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setRodShippingRateInput(formatted);
+    const rRate = parseInputNumber(formatted);
+    const cRate = parseInputNumber(cementShippingRateInput);
+    const total = round2((rodRingTotalKg * rRate) + (cementTotalBags * cRate));
+    if (total > 0) {
+      setShippingCostInput(formatDecimalInput(String(total)));
+    }
+  };
+
+  const handleCementShippingRateChange = (val: string) => {
+    const formatted = formatDecimalInput(val);
+    setCementShippingRateInput(formatted);
+    const cRate = parseInputNumber(formatted);
+    const rRate = parseInputNumber(rodShippingRateInput);
+    const total = round2((rodRingTotalKg * rRate) + (cementTotalBags * cRate));
+    if (total > 0) {
+      setShippingCostInput(formatDecimalInput(String(total)));
+    }
+  };
+
+  const handleSaveDefaultCharges = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('dokan_sales_rod_labor_rate', (rodLaborRate || 0).toString());
+      localStorage.setItem('dokan_sales_rod_loading_to_customer', rodLoadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_rod_unloading_rate', (rodUnloadingRate || 0).toString());
+      localStorage.setItem('dokan_sales_rod_unloading_to_customer', rodUnloadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_cement_labor_rate', (cementLaborRate || 0).toString());
+      localStorage.setItem('dokan_sales_cement_loading_to_customer', cementLoadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_cement_unloading_rate', (cementUnloadingRate || 0).toString());
+      localStorage.setItem('dokan_sales_cement_unloading_to_customer', cementUnloadingToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_shipping_to_customer', shippingCostToCustomerLedger.toString());
+      localStorage.setItem('dokan_sales_rod_shipping_rate', (rodShippingRate || 0).toString());
+      localStorage.setItem('dokan_sales_cement_shipping_rate', (cementShippingRate || 0).toString());
+      localStorage.setItem('dokan_sales_shipping_cost', (shippingCost || 0).toString());
+      toast.success('ডিফল্ট রেট সেভ করা হয়েছে');
+    }
+  };
+
+  // Extra charges added to customer ledger vs shop drawer
+  const customerPayableCharges = round2(
+    (rodLoadingToCustomerLedger ? rodLaborTotal : 0) +
+    (rodUnloadingToCustomerLedger ? rodUnloadingTotal : 0) +
+    (cementLoadingToCustomerLedger ? cementLaborTotal : 0) +
+    (cementUnloadingToCustomerLedger ? cementUnloadingTotal : 0) +
+    (shippingCostToCustomerLedger ? shippingCost : 0)
+  );
+
+  const shopPaidCharges = round2(
+    (!rodLoadingToCustomerLedger ? rodLaborTotal : 0) +
+    (!rodUnloadingToCustomerLedger ? rodUnloadingTotal : 0) +
+    (!cementLoadingToCustomerLedger ? cementLaborTotal : 0) +
+    (!cementUnloadingToCustomerLedger ? cementUnloadingTotal : 0) +
+    (!shippingCostToCustomerLedger ? shippingCost : 0)
+  );
+
   // Financial Calculations
   const totalReturnedValue = round2(returnCart.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.quantity) || 0)), 0));
-  const totalNewTakenValue = round2(newTakenCart.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.quantity) || 0)), 0));
-  const netRefundValue = round2(totalReturnedValue - totalNewTakenValue);
+  const netRefundValue = round2(Math.max(0, totalReturnedValue - customerPayableCharges));
 
   const selectedCust = customers.find(c => c.id === selectedCustomerId);
   const currentDue = round2(selectedCust?.totalDue || 0);
@@ -581,9 +919,29 @@ export default function SalesReturnsPage() {
       const metaObj = {
         reason: reason || 'পণ্য ফেরত ও বকেয়া এডজাস্ট',
         invoiceNo: activeInvoice ? activeInvoice.invoice_no : undefined,
-        newTakenItems: newTakenCart,
-        totalNewTakenValue: totalNewTakenValue,
-        netRefundValue: netRefundValue,
+        chargeCalcMode,
+        rodRingTotalKg,
+        cementTotalBags,
+        rodLaborRate,
+        rodLaborCost: rodLaborTotal,
+        rodLoadingToCustomerLedger,
+        rodUnloadingRate,
+        rodUnloadingCost: rodUnloadingTotal,
+        rodUnloadingToCustomerLedger,
+        cementLaborRate,
+        cementLaborCost: cementLaborTotal,
+        cementLoadingToCustomerLedger,
+        cementUnloadingRate,
+        cementUnloadingCost: cementUnloadingTotal,
+        cementUnloadingToCustomerLedger,
+        shippingCost,
+        shippingCostToCustomerLedger,
+        rodShippingRate,
+        cementShippingRate,
+        customerPayableCharges,
+        shopPaidCharges,
+        totalReturnedValue,
+        netRefundValue,
         cashRefundPaid: round2(cashRefundPaid),
         dueAdjusted: round2(dueAdjusted),
         settlementMode: settlementMode,
@@ -598,18 +956,34 @@ export default function SalesReturnsPage() {
         party_name: selectedCust?.name || 'সাধারণ গ্রাহক',
         party_phone: selectedCust?.phone || '',
         transaction_type: 'sale_return',
-        status: 'pending',
+        status: canApproveInvoice ? 'approved' : 'pending',
         total_amount: round2(totalReturnedValue),
         paid_amount: round2(cashRefundPaid),
         due_amount: round2(dueAdjusted),
         payment_method: cashRefundPaid > 0 ? paymentMethod : 'cash',
         bank_account: (cashRefundPaid > 0 && (paymentMethod === 'bank' || paymentMethod === 'mobile_banking') && bankAccountId) ? Number(bankAccountId) : null,
         items: returnCart.map(item => {
-          const numId = Number(item.id);
+          let resolvedProductId: number | null = null;
+          if (item.productId && typeof item.productId === 'number' && item.productId > 0 && products.some(p => Number(p.id) === item.productId)) {
+            resolvedProductId = item.productId;
+          } else {
+            const numId = Number(item.id);
+            if (!isNaN(numId) && numId > 0 && products.some(p => Number(p.id) === numId)) {
+              resolvedProductId = numId;
+            }
+          }
+          if (!resolvedProductId && item.name) {
+            const cleanName = cleanProdName(item.name);
+            const matched = products.find(p => cleanProdName(p.name) === cleanName);
+            if (matched) {
+              resolvedProductId = Number(matched.id);
+            }
+          }
+
           const q = round2(item.quantity);
           const p = round2(item.price);
           return {
-            product: !isNaN(numId) && numId > 0 ? numId : null,
+            product: resolvedProductId,
             product_name: `${item.name}${item.condition === 'damaged' ? ' [ড্যামেজ]' : ''}${item.invoiceNo ? ` (ইনভ:${item.invoiceNo})` : ''}`,
             quantity: q,
             price: p,
@@ -625,40 +999,16 @@ export default function SalesReturnsPage() {
         toast.success('বিক্রয় রিটার্ন চালানটি আপডেট করা হয়েছে!');
       } else {
         await api.transactions.create(payload);
-
-        // If new items were taken, submit Sales Transaction for New Taken Items (Stock OUT)
-        if (newTakenCart.length > 0) {
-          await api.transactions.create({
-            party: Number(selectedCustomerId),
-            transaction_type: 'sale',
-            status: 'pending',
-            total_amount: round2(totalNewTakenValue),
-            paid_amount: 0,
-            due_amount: round2(totalNewTakenValue),
-            items: newTakenCart.map(item => {
-              const numId = Number(item.id);
-              const q = round2(item.quantity);
-              const p = round2(item.price);
-              return {
-                product: !isNaN(numId) && numId > 0 ? numId : null,
-                product_name: item.name,
-                quantity: q,
-                price: p,
-                unit: item.unit || 'পিস',
-                total: round2(p * q)
-              };
-            }),
-            notes: `রিটার্ন এক্সচেঞ্জ ক্রয় (রিটার্ন: ${reason || 'পণ্য ফেরত'})`
-          });
-        }
-        toast.success('বিক্রয় রিটার্ন অপেক্ষমান (Pending) হিসেবে সংরক্ষিত হয়েছে! অনুমোদন করার পর স্টক ও হিসাবে যুক্ত হবে।');
+        toast.success(canApproveInvoice
+          ? 'বিক্রয় রিটার্ন সফলভাবে সংরক্ষিত ও অনুমোদিত হয়েছে! হিসাব, স্টক ও ড্রয়ারে যুক্ত হয়েছে।'
+          : 'বিক্রয় রিটার্ন অপেক্ষমান (Pending) হিসেবে সংরক্ষিত হয়েছে! অনুমোদন করার পর স্টক ও হিসাবে যুক্ত হবে।');
       }
 
       setIsOpen(false);
       setEditingReturn(null);
       setSelectedCustomerId('');
       setReturnCart([]);
-      setNewTakenCart([]);
+      resetChargeInputs();
       setReason('');
       setCashRefundPaidInput(0);
       setSettlementMode('due_adjust');
@@ -768,7 +1118,7 @@ export default function SalesReturnsPage() {
                   setEditingReturn(null);
                   setSelectedCustomerId('');
                   setReturnCart([]);
-                  setNewTakenCart([]);
+                  resetChargeInputs();
                   setReason('');
                   setCashRefundPaidInput(0);
                   setSettlementMode('due_adjust');
@@ -942,7 +1292,7 @@ export default function SalesReturnsPage() {
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs">রিটার্ন তারিখ ও আইডি</TableHead>
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs">গ্রাহকের নাম</TableHead>
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs">ফেরত পণ্যসমূহ</TableHead>
-                    <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs">নতুন নেওয়া পণ্য</TableHead>
+                    <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs">লেবার ও পরিবহন</TableHead>
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs text-right">মোট ফেরত মূল্য</TableHead>
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs text-right">হিসাব নিষ্পত্তি</TableHead>
                     <TableHead className="font-bold text-slate-700 py-3.5 px-4 text-xs text-center">স্ট্যাটাস</TableHead>
@@ -991,15 +1341,19 @@ export default function SalesReturnsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="py-3 px-4">
-                        <div className="space-y-0.5">
-                          {r.newTakenItems && r.newTakenItems.length > 0 ? (
-                            r.newTakenItems.map((item, idx) => (
-                              <div key={idx} className="text-xs font-bold text-emerald-700">
-                                + {item.name} ({item.quantity} {item.unit})
-                              </div>
-                            ))
-                          ) : (
-                            <span className="text-slate-400 text-xs">কোনো পণ্য নেননি</span>
+                        <div className="space-y-0.5 text-xs">
+                          {((r.rodLaborCost || 0) + (r.rodUnloadingCost || 0) + (r.cementLaborCost || 0) + (r.cementUnloadingCost || 0)) > 0 && (
+                            <div className="font-bold text-slate-700">
+                              লেবার: ৳ {toBengaliDigits(((r.rodLaborCost || 0) + (r.rodUnloadingCost || 0) + (r.cementLaborCost || 0) + (r.cementUnloadingCost || 0)).toLocaleString('en-IN'))}
+                            </div>
+                          )}
+                          {(r.shippingCost || 0) > 0 && (
+                            <div className="font-bold text-slate-700">
+                              গাড়ি ভাড়া: ৳ {toBengaliDigits((r.shippingCost || 0).toLocaleString('en-IN'))}
+                            </div>
+                          )}
+                          {!(((r.rodLaborCost || 0) + (r.rodUnloadingCost || 0) + (r.cementLaborCost || 0) + (r.cementUnloadingCost || 0)) > 0) && !((r.shippingCost || 0) > 0) && (
+                            <span className="text-slate-400 text-xs">—</span>
                           )}
                         </div>
                       </TableCell>
@@ -1575,147 +1929,489 @@ export default function SalesReturnsPage() {
                     </CardContent>
                   </Card>
 
-                  {/* STEP 3: Exchange Products (Optional) */}
-                  <Card className="bg-white border-slate-200/80 rounded-md shadow-xs">
+                  {/* STEP 3: Shipping & Labor Charges */}
+                  <Card className="bg-white border-slate-200/80 rounded-md shadow-xs font-bengali">
                     <CardContent className="p-5 space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                        <Label className="text-xs uppercase tracking-wider font-black text-emerald-700 flex items-center gap-2">
-                          <ShoppingCart className="w-4 h-4 text-emerald-600" /> ৩. এক্সচেঞ্জে নতুন নেওয়া পণ্য (অপশনাল)
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                        <Label className="text-xs uppercase tracking-wider font-black text-slate-800 flex items-center gap-2">
+                          <Truck className="w-4 h-4 text-emerald-600" /> ৩. পরিবহন ও লেবার খরচ (Shipping & Labor)
                         </Label>
-                        <span className="text-[11px] text-slate-400 font-semibold">
-                          ফেরতের বদলে অন্য পণ্য নিলে যোগ করুন
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSaveDefaultCharges}
+                            className="text-[10px] font-black text-amber-700 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-sm border border-amber-300 transition-colors cursor-pointer font-bengali"
+                            title="বর্তমানে দেওয়া রেটগুলো সব সময় ডিফল্ট হিসেবে রাখতে এখানে ক্লিক করুন"
+                          >
+                            📌 ডিফল্ট রেট সেভ করুন
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-md border border-slate-200 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                          <span className="font-bold text-slate-800">প্রতি ইউনিট রেট অনুযায়ী (রড কেজি ও সিমেন্ট বস্তা)</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium hidden sm:inline">
+                          (সরাসরি মোট টাকা এডিটও করা যাবে)
                         </span>
                       </div>
 
-                      {/* Cascading Item Line Selector */}
-                      <CascadingProductSelector
-                        products={products}
-                        onlyInStock={true}
-                        onProductChange={(selected) => {
-                          setSelectedCascadingNewProduct(selected);
-                          if (selected) {
-                            setNewProdId(selected.productId || '');
-                          }
-                        }}
-                        showPriceField={true}
-                        priceLabel="বিক্রয়/নতুন একক দর (৳)"
-                        itemPrice={newPrice}
-                        onPriceChange={setNewPrice}
-                        itemQty={newQty}
-                        onQtyChange={setNewQty}
-                        onAddCartItem={handleAddNewItem}
-                        buttonLabel="+ নতুন যোগ করুন"
-                      />
+                      <div className="space-y-3 font-bengali">
+                        {/* Rod & Ring Rate Box */}
+                        {(rodRingTotalKg > 0 || (rodRingTotalKg === 0 && cementTotalBags === 0)) && (
+                          <div className="bg-sky-50/60 border border-sky-200 rounded-md p-3 space-y-3">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-black text-sky-900 flex items-center gap-1.5">
+                                🔹 রড ও রিং লেবার খরচ
+                              </span>
+                              <span className="bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded text-[11px]">
+                                ফেরত রডের ওজন: {toBengaliDigits(rodRingTotalKg.toLocaleString('en-IN'))} কেজি
+                              </span>
+                            </div>
 
-                      {/* New Taken Table */}
-                      <div className="border border-slate-200 rounded-md overflow-hidden">
-                        <Table>
-                          <TableHeader className="bg-emerald-50/50 text-slate-700 text-xs">
-                            <TableRow>
-                              <TableHead className="font-bold">#</TableHead>
-                              <TableHead className="font-bold">পণ্যের নাম</TableHead>
-                              <TableHead className="text-center font-bold">পরিমাণ</TableHead>
-                              <TableHead className="text-right font-bold">একক দর</TableHead>
-                              <TableHead className="text-right font-bold">মোট মূল্য</TableHead>
-                              <TableHead className="w-12"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody className="text-xs font-bold">
-                            {newTakenCart.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={6} className="text-center py-6 text-slate-400 font-normal">
-                                  কোনো নতুন পণ্য নিচ্ছেন না (শুধু ফেরত)।
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              newTakenCart.map((item, idx) => (
-                                <TableRow key={idx} className="hover:bg-slate-50">
-                                  <TableCell className="text-center font-semibold text-slate-500">{toBengaliDigits(idx + 1)}</TableCell>
-                                  <TableCell className="font-black text-slate-900">{item.name}</TableCell>
-                                  <TableCell className="text-center">
-                                    <div className="flex flex-col items-center justify-center gap-0.5">
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (item.quantity > 1) {
-                                              const updated = [...newTakenCart];
-                                              updated[idx].quantity -= 1;
-                                              setNewTakenCart(updated);
-                                            }
-                                          }}
-                                          className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 font-black text-xs flex items-center justify-center cursor-pointer text-slate-700"
-                                        >
-                                          -
-                                        </button>
-                                        <Input
-                                          type="number"
-                                          step="any"
-                                          min="0.01"
-                                          max={item.maxQuantity}
-                                          value={item.quantity}
-                                          onChange={(e) => {
-                                            const entered = parseFloat(e.target.value);
-                                            const max = item.maxQuantity || Infinity;
-                                            if (!isNaN(entered) && entered > max) {
-                                              toast.warning(`⚠️ স্টকে মাত্র ${max} ${item.unit} রয়েছে!`);
-                                            }
-                                            const val = Math.min(Math.max(0.01, isNaN(entered) ? 0.01 : entered), max);
-                                            const updated = [...newTakenCart];
-                                            updated[idx].quantity = Math.round(val * 100) / 100;
-                                            setNewTakenCart(updated);
-                                          }}
-                                          className="w-14 h-6 text-center font-black text-xs rounded border-slate-300 p-0"
-                                        />
-                                        <button
-                                          type="button"
-                                          disabled={item.maxQuantity !== undefined && item.quantity >= item.maxQuantity}
-                                          onClick={() => {
-                                            const max = item.maxQuantity || Infinity;
-                                            if (item.quantity < max) {
-                                              const updated = [...newTakenCart];
-                                              updated[idx].quantity += 1;
-                                              setNewTakenCart(updated);
-                                            } else {
-                                              toast.warning(`⚠️ স্টকে মাত্র ${max} ${item.unit} রয়েছে!`);
-                                            }
-                                          }}
-                                          className={cn(
-                                            "w-6 h-6 rounded font-black text-xs flex items-center justify-center",
-                                            item.maxQuantity !== undefined && item.quantity >= item.maxQuantity
-                                              ? "bg-slate-100 text-slate-300 cursor-not-allowed"
-                                              : "bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
-                                          )}
-                                        >
-                                          +
-                                        </button>
-                                        <span className="text-[11px] text-slate-500 font-bold ml-1">{item.unit}</span>
-                                      </div>
-                                      {item.maxQuantity !== undefined && (
-                                        <span className="text-[10px] text-slate-400 font-bold">
-                                          (মজুদ: {toBengaliDigits(item.maxQuantity)} {item.unit})
-                                        </span>
+                            {/* Rod Loading Section */}
+                            <div className={cn(
+                              "space-y-1.5 p-2 rounded-md transition-all",
+                              rodLoadingToCustomerLedger ? "bg-sky-50/80 border border-sky-200" : "bg-slate-50/80 border border-slate-200"
+                            )}>
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-[11px] font-bold text-slate-700">লোডিং লেবার খরচ</Label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={rodLoadingToCustomerLedger}
+                                    onClick={() => setRodLoadingToCustomerLedger(!rodLoadingToCustomerLedger)}
+                                    className={cn(
+                                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-sky-500",
+                                      rodLoadingToCustomerLedger ? "bg-sky-600" : "bg-slate-300"
+                                    )}
+                                    title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                  >
+                                    <span
+                                      className={cn(
+                                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                        rodLoadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
                                       )}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-right">৳ {item.price.toLocaleString()}</TableCell>
-                                  <TableCell className="text-right text-emerald-600 font-black">
-                                    ৳ {(item.quantity * item.price).toLocaleString()}
-                                  </TableCell>
-                                  <TableCell>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => setNewTakenCart(newTakenCart.filter((_, i) => i !== idx))} 
-                                      className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </TableCell>
-                                </TableRow>
-                              ))
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRodLoadingToCustomerLedger(!rodLoadingToCustomerLedger)}
+                                    className={cn(
+                                      "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                      rodLoadingToCustomerLedger 
+                                        ? "bg-sky-100 text-sky-800 border-sky-300" 
+                                        : "bg-slate-200 text-slate-600 border-slate-300"
+                                    )}
+                                  >
+                                    {rodLoadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-0.5">
+                                  <span className="text-[10px] text-slate-500 font-medium">লোডিং রেট (৳/কেজি)</span>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={rodLaborRateInput}
+                                    onChange={e => handleRodLaborRateChange(e.target.value)}
+                                    placeholder="০.০০"
+                                    className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-slate-800 font-bengali"
+                                  />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-500 font-medium">মোট লোডিং (৳)</span>
+                                    <span className="text-[9px] text-amber-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                  </div>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={rodLaborTotalInput !== '' ? rodLaborTotalInput : (rodLaborTotal > 0 ? String(rodLaborTotal) : '')}
+                                    onChange={e => setRodLaborTotalInput(formatDecimalInput(e.target.value))}
+                                    placeholder={rodLaborTotal > 0 ? String(rodLaborTotal) : '০.০০'}
+                                    className="rounded-md h-9 bg-white border-sky-300 text-xs font-bold text-amber-700 font-bengali"
+                                  />
+                                </div>
+                              </div>
+                              <span className={cn(
+                                "text-[10px] font-medium block",
+                                rodLoadingToCustomerLedger ? "text-sky-800" : "text-amber-800"
+                              )}>
+                                {rodLoadingToCustomerLedger 
+                                  ? '💡 রড লোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                  : '💡 রড লোডিং খরচ কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                              </span>
+                            </div>
+
+                            {/* Rod Unloading Section */}
+                            <div className={cn(
+                              "pt-2 border-t border-sky-200/80 space-y-1.5 p-2 rounded-md transition-all",
+                              rodUnloadingToCustomerLedger ? "bg-emerald-50/40 border border-emerald-200/60" : "bg-slate-50/80 border border-slate-200"
+                            )}>
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-[11px] font-bold text-slate-700">আনলোডিং লেবার খরচ</Label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={rodUnloadingToCustomerLedger}
+                                    onClick={() => setRodUnloadingToCustomerLedger(!rodUnloadingToCustomerLedger)}
+                                    className={cn(
+                                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-emerald-500",
+                                      rodUnloadingToCustomerLedger ? "bg-emerald-600" : "bg-slate-300"
+                                    )}
+                                    title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                  >
+                                    <span
+                                      className={cn(
+                                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                        rodUnloadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                      )}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRodUnloadingToCustomerLedger(!rodUnloadingToCustomerLedger)}
+                                    className={cn(
+                                      "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                      rodUnloadingToCustomerLedger 
+                                        ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                                        : "bg-slate-200 text-slate-600 border-slate-300"
+                                    )}
+                                  >
+                                    {rodUnloadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-0.5">
+                                  <span className="text-[10px] text-slate-500 font-medium">আনলোডিং রেট (৳/কেজি)</span>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={rodUnloadingRateInput}
+                                    onChange={e => handleRodUnloadingRateChange(e.target.value)}
+                                    placeholder="০.০০"
+                                    className={cn(
+                                      "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                      rodUnloadingToCustomerLedger ? "border-emerald-300 text-slate-800" : "border-slate-300 text-slate-800"
+                                    )}
+                                  />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-500 font-medium">মোট আনলোডিং (৳)</span>
+                                    <span className="text-[9px] text-emerald-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                  </div>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={rodUnloadingTotalInput !== '' ? rodUnloadingTotalInput : (rodUnloadingTotal > 0 ? String(rodUnloadingTotal) : '')}
+                                    onChange={e => setRodUnloadingTotalInput(formatDecimalInput(e.target.value))}
+                                    placeholder={rodUnloadingTotal > 0 ? String(rodUnloadingTotal) : '০.০০'}
+                                    className={cn(
+                                      "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                      rodUnloadingToCustomerLedger ? "border-emerald-300 text-emerald-800" : "border-slate-300 text-slate-700"
+                                    )}
+                                  />
+                                </div>
+                              </div>
+                              <span className={cn(
+                                "text-[10px] font-medium block",
+                                rodUnloadingToCustomerLedger ? "text-emerald-800" : "text-amber-800"
+                              )}>
+                                {rodUnloadingToCustomerLedger 
+                                  ? '💡 রড আনলোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                  : '💡 রড আনলোডিং খরচ কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Cement Rate Box */}
+                        {(cementTotalBags > 0 || (rodRingTotalKg === 0 && cementTotalBags === 0)) && (
+                          <div className="bg-amber-50/60 border border-amber-200 rounded-md p-3 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-black text-amber-900 flex items-center gap-1.5">
+                                🔸 সিমেন্ট লোডিং ও আনলোডিং খরচ (বস্তা হিসেবে)
+                              </span>
+                              <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[11px]">
+                                ফেরত সিমেন্ট: {toBengaliDigits(cementTotalBags.toLocaleString('en-IN'))} বস্তা
+                              </span>
+                            </div>
+
+                            {/* Cement Loading Section */}
+                            <div className={cn(
+                              "space-y-1.5 p-2 rounded-md transition-all",
+                              cementLoadingToCustomerLedger ? "bg-amber-100/50 border border-amber-300" : "bg-slate-50/80 border border-slate-200"
+                            )}>
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-[11px] font-bold text-slate-700">লোডিং লেবার খরচ</Label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={cementLoadingToCustomerLedger}
+                                    onClick={() => setCementLoadingToCustomerLedger(!cementLoadingToCustomerLedger)}
+                                    className={cn(
+                                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-amber-500",
+                                      cementLoadingToCustomerLedger ? "bg-amber-600" : "bg-slate-300"
+                                    )}
+                                    title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                  >
+                                    <span
+                                      className={cn(
+                                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                        cementLoadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                      )}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCementLoadingToCustomerLedger(!cementLoadingToCustomerLedger)}
+                                    className={cn(
+                                      "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                      cementLoadingToCustomerLedger 
+                                        ? "bg-amber-200 text-amber-900 border-amber-400" 
+                                        : "bg-slate-200 text-slate-600 border-slate-300"
+                                    )}
+                                  >
+                                    {cementLoadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'দোকান প্রদেয় / লেজারে বাদ'}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-0.5">
+                                  <span className="text-[10px] text-slate-500 font-medium">রেট (৳/বস্তা)</span>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={cementLaborRateInput}
+                                    onChange={e => handleCementLaborRateChange(e.target.value)}
+                                    placeholder="০.০০"
+                                    className="rounded-md h-9 bg-white border-amber-300 text-xs font-bold text-slate-800 font-bengali"
+                                  />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-500 font-medium">মোট লোডিং (৳)</span>
+                                    <span className="text-[9px] text-amber-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                  </div>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={cementLaborTotalInput !== '' ? cementLaborTotalInput : (cementLaborTotal > 0 ? String(cementLaborTotal) : '')}
+                                    onChange={e => setCementLaborTotalInput(formatDecimalInput(e.target.value))}
+                                    placeholder={cementLaborTotal > 0 ? String(cementLaborTotal) : '০.০০'}
+                                    className="rounded-md h-9 bg-white border-amber-300 text-xs font-bold text-amber-700 font-bengali"
+                                  />
+                                </div>
+                              </div>
+                              <span className={cn(
+                                "text-[10px] font-medium block",
+                                cementLoadingToCustomerLedger ? "text-amber-900" : "text-amber-800"
+                              )}>
+                                {cementLoadingToCustomerLedger 
+                                  ? '💡 সিমেন্ট লোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                  : '💡 লোডিং খরচ কাস্টমারের বিলে যুক্ত হবে না, দোকান লোডিং বিল হিসেবে পরিশোধ হবে।'}
+                              </span>
+                            </div>
+
+                            {/* Cement Unloading Section */}
+                            <div className={cn(
+                              "pt-2 border-t border-amber-200/80 space-y-1.5 p-2 rounded-md transition-all",
+                              cementUnloadingToCustomerLedger ? "bg-emerald-50/40" : "bg-slate-50/80 border border-slate-200"
+                            )}>
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-[11px] font-bold text-slate-700">আনলোডিং লেবার খরচ</Label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={cementUnloadingToCustomerLedger}
+                                    onClick={() => setCementUnloadingToCustomerLedger(!cementUnloadingToCustomerLedger)}
+                                    className={cn(
+                                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-emerald-500",
+                                      cementUnloadingToCustomerLedger ? "bg-emerald-600" : "bg-slate-300"
+                                    )}
+                                    title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                                  >
+                                    <span
+                                      className={cn(
+                                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                        cementUnloadingToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                      )}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCementUnloadingToCustomerLedger(!cementUnloadingToCustomerLedger)}
+                                    className={cn(
+                                      "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                      cementUnloadingToCustomerLedger 
+                                        ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                                        : "bg-slate-200 text-slate-600 border-slate-300"
+                                    )}
+                                  >
+                                    {cementUnloadingToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'লেজারে যুক্ত নয়'}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-0.5">
+                                  <span className="text-[10px] text-slate-500 font-medium">রেট (৳/বস্তা)</span>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={cementUnloadingRateInput}
+                                    onChange={e => handleCementUnloadingRateChange(e.target.value)}
+                                    placeholder="০.০০"
+                                    className={cn(
+                                      "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                      cementUnloadingToCustomerLedger ? "border-emerald-300 text-slate-800" : "border-slate-300 text-slate-800"
+                                    )}
+                                  />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-500 font-medium">মোট আনলোডিং (৳)</span>
+                                    <span className="text-[9px] text-emerald-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                                  </div>
+                                  <Input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={cementUnloadingTotalInput !== '' ? cementUnloadingTotalInput : (cementUnloadingTotal > 0 ? String(cementUnloadingTotal) : '')}
+                                    onChange={e => setCementUnloadingTotalInput(formatDecimalInput(e.target.value))}
+                                    placeholder={cementUnloadingTotal > 0 ? String(cementUnloadingTotal) : '০.০০'}
+                                    className={cn(
+                                      "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                      cementUnloadingToCustomerLedger ? "border-emerald-300 text-emerald-800" : "border-slate-300 text-slate-700"
+                                    )}
+                                  />
+                                </div>
+                              </div>
+                              <span className={cn(
+                                "text-[10px] font-medium block",
+                                cementUnloadingToCustomerLedger ? "text-emerald-800" : "text-amber-800"
+                              )}>
+                                {cementUnloadingToCustomerLedger 
+                                  ? '💡 আনলোডিং খরচ কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                                  : '💡 আনলোডিং খরচ কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Dedicated Vehicle Fare Box */}
+                        <div className={cn(
+                          "border rounded-md p-3 space-y-2 transition-all",
+                          shippingCostToCustomerLedger ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50/80 border-slate-200"
+                        )}>
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                🚚 পরিবহন / গাড়ি ভাড়া
+                              </Label>
+                              <span className="hidden sm:inline text-[10px] text-slate-500">
+                                (রেট দিলে হিসাব হবে অথবা সরাসরি মোট ভাড়া লিখুন)
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={shippingCostToCustomerLedger}
+                                onClick={() => setShippingCostToCustomerLedger(!shippingCostToCustomerLedger)}
+                                className={cn(
+                                  "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-emerald-500",
+                                  shippingCostToCustomerLedger ? "bg-emerald-600" : "bg-slate-300"
+                                )}
+                                title="কাস্টমারের লেজারে যুক্ত বা বাদ দিতে ক্লিক করুন"
+                              >
+                                <span
+                                  className={cn(
+                                    "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                                    shippingCostToCustomerLedger ? "translate-x-4" : "translate-x-0"
+                                  )}
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShippingCostToCustomerLedger(!shippingCostToCustomerLedger)}
+                                className={cn(
+                                  "text-[9px] font-black px-1.5 py-0.5 rounded border select-none cursor-pointer transition-colors",
+                                  shippingCostToCustomerLedger 
+                                    ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                                    : "bg-slate-200 text-slate-600 border-slate-300"
+                                )}
+                              >
+                                {shippingCostToCustomerLedger ? 'কাস্টমার লেজারে যুক্ত' : 'লেজারে যুক্ত নয়'}
+                              </button>
+                            </div>
+                          </div>
+                          <span className={cn(
+                            "text-[10px] font-medium block",
+                            shippingCostToCustomerLedger ? "text-emerald-800" : "text-amber-800"
+                          )}>
+                            {shippingCostToCustomerLedger 
+                              ? '💡 গাড়ি ভাড়া কাস্টমারের বিলে ও লেজারে যুক্ত হবে।' 
+                              : '💡 গাড়ি ভাড়া কাস্টমারের বিলে বা লেজারে যুক্ত হবে না (দোকান বহন করবে / আলাদা হিসাব)।'}
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {rodRingTotalKg > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-600 font-medium">রড গাড়ি ভাড়া (৳/কেজি)</span>
+                                <Input 
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={rodShippingRateInput}
+                                  onChange={e => handleRodShippingRateChange(e.target.value)}
+                                  placeholder="০.০০"
+                                  className="rounded-md h-9 bg-white border-emerald-300 text-xs font-bold text-slate-800 font-bengali"
+                                />
+                              </div>
                             )}
-                          </TableBody>
-                        </Table>
+                            {cementTotalBags > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-600 font-medium">সিমেন্ট গাড়ি ভাড়া (৳/বস্তা)</span>
+                                <Input 
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={cementShippingRateInput}
+                                  onChange={e => handleCementShippingRateChange(e.target.value)}
+                                  placeholder="০.০০"
+                                  className="rounded-md h-9 bg-white border-emerald-300 text-xs font-bold text-slate-800 font-bengali"
+                                />
+                              </div>
+                            )}
+                            <div className={cn(
+                              "space-y-0.5",
+                              !(rodRingTotalKg > 0 || cementTotalBags > 0) && "sm:col-span-3",
+                              ((rodRingTotalKg > 0 && cementTotalBags === 0) || (cementTotalBags > 0 && rodRingTotalKg === 0)) && "sm:col-span-2"
+                            )}>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-slate-800 font-bold">মোট গাড়ি ভাড়া (৳)</span>
+                                <span className="text-[9px] text-emerald-700 font-bold">(রাউন্ড/এডিটযোগ্য)</span>
+                              </div>
+                              <Input 
+                                type="text"
+                                inputMode="decimal"
+                                value={shippingCostInput}
+                                onChange={e => setShippingCostInput(formatDecimalInput(e.target.value))}
+                                placeholder="০"
+                                className={cn(
+                                  "rounded-md h-9 bg-white text-xs font-bold font-bengali transition-colors",
+                                  shippingCostToCustomerLedger ? "border-emerald-300 text-slate-800" : "border-slate-300 text-slate-700"
+                                )}
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1769,41 +2465,50 @@ export default function SalesReturnsPage() {
                       <div className="space-y-3 text-xs">
                         <div className="flex justify-between py-1 border-b border-slate-100">
                           <span className="text-slate-500 font-semibold">কাস্টমারের বর্তমান বকেয়া</span>
-                          <span className="font-black text-slate-900">৳ {currentDue.toLocaleString()}</span>
+                          <span className="font-black text-slate-900">৳ {toBengaliDigits(currentDue.toLocaleString('en-IN'))}</span>
                         </div>
 
                         <div className="flex justify-between py-1 border-b border-slate-100">
                           <span className="text-slate-500 font-semibold">মোট ফেরত পণ্যের মূল্য</span>
-                          <span className="font-black text-rose-600">৳ {totalReturnedValue.toLocaleString()}</span>
+                          <span className="font-black text-rose-600">৳ {toBengaliDigits(totalReturnedValue.toLocaleString('en-IN'))}</span>
                         </div>
 
-                        <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-500 font-semibold">নতুন নেওয়া পণ্যের মূল্য</span>
-                          <span className="font-black text-emerald-600">৳ {totalNewTakenValue.toLocaleString()}</span>
-                        </div>
+                        {customerPayableCharges > 0 && (
+                          <div className="flex justify-between py-1 border-b border-slate-100">
+                            <span className="text-slate-600 font-semibold">লেবার ও পরিবহন (কাস্টমার প্রদেয়)</span>
+                            <span className="font-black text-rose-700">- ৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
+                          </div>
+                        )}
 
                         <div className="flex justify-between py-2 border-b-2 border-slate-200 bg-slate-50 p-2 rounded-md">
                           <span className="font-black text-slate-900">নিট ফেরত মূল্য (Net Balance)</span>
-                          <span className={cn("font-black text-base", netRefundValue >= 0 ? "text-rose-600" : "text-emerald-600")}>
-                            ৳ {netRefundValue.toLocaleString()}
+                          <span className="font-black text-base text-rose-600">
+                            ৳ {toBengaliDigits(netRefundValue.toLocaleString('en-IN'))}
                           </span>
                         </div>
+
+                        {shopPaidCharges > 0 && (
+                          <div className="flex justify-between py-1 border-b border-dashed border-amber-200 text-amber-800 text-[11px]">
+                            <span>দোকান প্রদেয় লেবার/গাড়ি ভাড়া</span>
+                            <span className="font-bold">৳ {toBengaliDigits(shopPaidCharges.toLocaleString('en-IN'))} (দোকান বহন করবে)</span>
+                          </div>
+                        )}
 
                         {/* DUE / ADVANCE LIVE SUMMARY */}
                         {netRefundValue > 0 && selectedCust && (
                           <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-1.5 text-xs">
                             <div className="flex justify-between items-center text-slate-700">
                               <span className="font-semibold">বর্তমান বকেয়া:</span>
-                              <span className="font-bold font-mono">৳ {currentDue.toLocaleString()}</span>
+                              <span className="font-bold font-mono">৳ {toBengaliDigits(currentDue.toLocaleString('en-IN'))}</span>
                             </div>
                             <div className="flex justify-between items-center text-blue-700">
                               <span className="font-bold">সমন্বয় হবে:</span>
-                              <span className="font-black font-mono">- ৳ {dueAdjusted.toLocaleString()}</span>
+                              <span className="font-black font-mono">- ৳ {toBengaliDigits(dueAdjusted.toLocaleString('en-IN'))}</span>
                             </div>
                             <div className="pt-1.5 border-t border-slate-200 flex justify-between items-center text-slate-900 font-black">
                               <span>অবশিষ্ট বকেয়া:</span>
                               <span className={cn("font-mono font-black", newCustomerDue > 0 ? "text-blue-700" : "text-emerald-700")}>
-                                ৳ {newCustomerDue.toLocaleString()}
+                                ৳ {toBengaliDigits(newCustomerDue.toLocaleString('en-IN'))}
                               </span>
                             </div>
                           </div>

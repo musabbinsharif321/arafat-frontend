@@ -60,14 +60,15 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
   let newTakenItems = returnEntry.newTakenItems || [];
   let totalNewTakenValue = Number(returnEntry.totalNewTakenValue || 0);
 
-  // Fallback to metadata in notes/reason if newTakenItems is empty
+  // Fallback to metadata in notes/reason
   const rawNote = returnEntry.notes || returnEntry.reason || '';
   let cleanReason = returnEntry.reason || 'পণ্য ফেরত / বকেয়া এডজাস্টমেন্ট';
+  let meta: any = {};
   if (rawNote && typeof rawNote === 'string' && rawNote.trim().startsWith('{')) {
     try {
       const idx = rawNote.indexOf('\n');
       const jsonStr = idx !== -1 ? rawNote.substring(0, idx) : rawNote;
-      const meta = JSON.parse(jsonStr);
+      meta = JSON.parse(jsonStr);
       if ((!newTakenItems || newTakenItems.length === 0) && meta.newTakenItems && Array.isArray(meta.newTakenItems)) {
         newTakenItems = meta.newTakenItems;
       }
@@ -80,11 +81,50 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
     } catch {}
   }
 
+  const rodLaborCost = Number(returnEntry.rodLaborCost ?? meta.rodLaborCost ?? 0);
+  const rodLaborRate = Number(returnEntry.rodLaborRate ?? meta.rodLaborRate ?? 0);
+  const rodLoadingToCustomerLedger = returnEntry.rodLoadingToCustomerLedger ?? meta.rodLoadingToCustomerLedger ?? true;
+
+  const rodUnloadingCost = Number(returnEntry.rodUnloadingCost ?? meta.rodUnloadingCost ?? 0);
+  const rodUnloadingRate = Number(returnEntry.rodUnloadingRate ?? meta.rodUnloadingRate ?? 0);
+  const rodUnloadingToCustomerLedger = returnEntry.rodUnloadingToCustomerLedger ?? meta.rodUnloadingToCustomerLedger ?? true;
+
+  const cementLaborCost = Number(returnEntry.cementLaborCost ?? meta.cementLaborCost ?? 0);
+  const cementLaborRate = Number(returnEntry.cementLaborRate ?? meta.cementLaborRate ?? 0);
+  const cementLoadingToCustomerLedger = returnEntry.cementLoadingToCustomerLedger ?? meta.cementLoadingToCustomerLedger ?? false;
+
+  const cementUnloadingCost = Number(returnEntry.cementUnloadingCost ?? meta.cementUnloadingCost ?? 0);
+  const cementUnloadingRate = Number(returnEntry.cementUnloadingRate ?? meta.cementUnloadingRate ?? 0);
+  const cementUnloadingToCustomerLedger = returnEntry.cementUnloadingToCustomerLedger ?? meta.cementUnloadingToCustomerLedger ?? true;
+
+  const shippingCost = Number(returnEntry.shippingCost ?? meta.shippingCost ?? 0);
+  const shippingCostToCustomerLedger = returnEntry.shippingCostToCustomerLedger ?? meta.shippingCostToCustomerLedger ?? true;
+
+  const customerPayableCharges = Number(returnEntry.customerPayableCharges ?? meta.customerPayableCharges ?? (
+    (rodLoadingToCustomerLedger ? rodLaborCost : 0) +
+    (rodUnloadingToCustomerLedger ? rodUnloadingCost : 0) +
+    (cementLoadingToCustomerLedger ? cementLaborCost : 0) +
+    (cementUnloadingToCustomerLedger ? cementUnloadingCost : 0) +
+    (shippingCostToCustomerLedger ? shippingCost : 0)
+  ));
+
+  const shopPaidCharges = Number(returnEntry.shopPaidCharges ?? meta.shopPaidCharges ?? (
+    (!rodLoadingToCustomerLedger ? rodLaborCost : 0) +
+    (!rodUnloadingToCustomerLedger ? rodUnloadingCost : 0) +
+    (!cementLoadingToCustomerLedger ? cementLaborCost : 0) +
+    (!cementUnloadingToCustomerLedger ? cementUnloadingCost : 0) +
+    (!shippingCostToCustomerLedger ? shippingCost : 0)
+  ));
+
+  const hasAnyCharges = rodLaborCost > 0 || rodUnloadingCost > 0 || cementLaborCost > 0 || cementUnloadingCost > 0 || shippingCost > 0;
+
   const totalReturnedValue = Number(returnEntry.totalReturnValue || returnedItems.reduce((s: number, i: any) => s + (i.price * i.quantity), 0));
   if (totalNewTakenValue === 0 && newTakenItems.length > 0) {
     totalNewTakenValue = newTakenItems.reduce((s: number, i: any) => s + (Number(i.price || 0) * Number(i.quantity || 0)), 0);
   }
-  const netRefundValue = returnEntry.netRefundValue !== undefined ? Number(returnEntry.netRefundValue) : (totalReturnedValue - totalNewTakenValue);
+  const netRefundValue = returnEntry.netRefundValue !== undefined 
+    ? Number(returnEntry.netRefundValue) 
+    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : Math.max(0, totalReturnedValue - customerPayableCharges));
 
   const dueAdjusted = Number(returnEntry.dueAdjusted || 0);
   const cashRefundPaid = Number(returnEntry.cashRefundPaid || 0);
@@ -405,58 +445,115 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
 
       </div>
 
-      {/* --- SECTION 3: NEW EXCHANGED ITEMS TABLE (IF ANY) --- */}
-      {newTakenItems.length > 0 && (
+      {/* --- SECTION 3: SHIPPING & LABOR CHARGES TABLE (IF ANY) --- */}
+      {hasAnyCharges && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-xs">
           
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2 text-slate-900 font-black text-sm">
-              <ArrowRightLeft className="w-4 h-4 text-emerald-600" />
-              <h3>নতুন পরিবর্তন/নেওয়া পণ্য (Exchanged New Items)</h3>
+              <Package className="w-4 h-4 text-blue-600" />
+              <h3>পরিবহন ও লেবার খরচ (Shipping & Labor Charges)</h3>
             </div>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-              মোট নতুন পণ্য: {toBengaliDigits(newTakenItems.length)} টি
+            <span className="text-xs font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-full border border-slate-200">
+              মোট খরচ: ৳ {toBengaliDigits((customerPayableCharges + shopPaidCharges).toLocaleString('en-IN'))}
             </span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead>
-                <tr className="bg-emerald-50/60 border-b border-emerald-200 text-emerald-950 font-black">
+                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-800 font-black">
                   <th className="py-2.5 px-3 text-center w-12">#</th>
-                  <th className="py-2.5 px-3">নতুন পণ্যের নাম</th>
-                  <th className="py-2.5 px-3 text-center">পরিমাণ</th>
-                  <th className="py-2.5 px-3 text-center">একক</th>
-                  <th className="py-2.5 px-3 text-right">একক মূল্য (৳)</th>
-                  <th className="py-2.5 px-3 text-right">মোট মূল্য (৳)</th>
+                  <th className="py-2.5 px-3">খরচের বিবরণ</th>
+                  <th className="py-2.5 px-3 text-center">রেট / হিসাব</th>
+                  <th className="py-2.5 px-3 text-center">দায়ভার</th>
+                  <th className="py-2.5 px-3 text-right">মোট টাকা (৳)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                {newTakenItems.map((item: any, idx: number) => {
-                  const itemPrice = Number(item.price || 0);
-                  const itemQty = Number(item.quantity || 0);
-                  const itemTotal = itemPrice * itemQty;
-                  return (
-                    <tr key={idx} className="hover:bg-emerald-50/30 transition-colors">
-                      <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">
-                        {toBengaliDigits(idx + 1)}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-slate-900">
-                        {item.name}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700">
-                        {toBengaliDigits(itemQty.toLocaleString('en-IN'))}
-                      </td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{item.unit || 'পিস'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                        ৳ {toBengaliDigits(itemPrice.toLocaleString('en-IN'))}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono font-black text-emerald-700">
-                        ৳ {toBengaliDigits(itemTotal.toLocaleString('en-IN'))}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {rodLaborCost > 0 && (
+                  <tr className="hover:bg-slate-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">১</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">রড লোডিং লেবার খরচ</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">
+                      {rodLaborRate > 0 ? `@ ৳${toBengaliDigits(rodLaborRate)}/কেজি` : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold inline-block", rodLoadingToCustomerLedger ? "bg-blue-100 text-blue-800 border border-blue-200" : "bg-amber-100 text-amber-800 border border-amber-200")}>
+                        {rodLoadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                      ৳ {toBengaliDigits(rodLaborCost.toLocaleString('en-IN'))}
+                    </td>
+                  </tr>
+                )}
+                {rodUnloadingCost > 0 && (
+                  <tr className="hover:bg-slate-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">২</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">রড আনলোডিং লেবার খরচ</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">
+                      {rodUnloadingRate > 0 ? `@ ৳${toBengaliDigits(rodUnloadingRate)}/কেজি` : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold inline-block", rodUnloadingToCustomerLedger ? "bg-blue-100 text-blue-800 border border-blue-200" : "bg-amber-100 text-amber-800 border border-amber-200")}>
+                        {rodUnloadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                      ৳ {toBengaliDigits(rodUnloadingCost.toLocaleString('en-IN'))}
+                    </td>
+                  </tr>
+                )}
+                {cementLaborCost > 0 && (
+                  <tr className="hover:bg-slate-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">৩</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">সিমেন্ট লোডিং লেবার খরচ</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">
+                      {cementLaborRate > 0 ? `@ ৳${toBengaliDigits(cementLaborRate)}/বস্তা` : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold inline-block", cementLoadingToCustomerLedger ? "bg-blue-100 text-blue-800 border border-blue-200" : "bg-amber-100 text-amber-800 border border-amber-200")}>
+                        {cementLoadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                      ৳ {toBengaliDigits(cementLaborCost.toLocaleString('en-IN'))}
+                    </td>
+                  </tr>
+                )}
+                {cementUnloadingCost > 0 && (
+                  <tr className="hover:bg-slate-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">৪</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">সিমেন্ট আনলোডিং লেবার খরচ</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">
+                      {cementUnloadingRate > 0 ? `@ ৳${toBengaliDigits(cementUnloadingRate)}/বস্তা` : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold inline-block", cementUnloadingToCustomerLedger ? "bg-blue-100 text-blue-800 border border-blue-200" : "bg-amber-100 text-amber-800 border border-amber-200")}>
+                        {cementUnloadingToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                      ৳ {toBengaliDigits(cementUnloadingCost.toLocaleString('en-IN'))}
+                    </td>
+                  </tr>
+                )}
+                {shippingCost > 0 && (
+                  <tr className="hover:bg-slate-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-500">৫</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">পরিবহন / গাড়ি ভাড়া খরচ</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">গাড়ি ভাড়া</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold inline-block", shippingCostToCustomerLedger ? "bg-blue-100 text-blue-800 border border-blue-200" : "bg-amber-100 text-amber-800 border border-amber-200")}>
+                        {shippingCostToCustomerLedger ? 'কাস্টমার প্রদেয়' : 'দোকান প্রদেয়'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                      ৳ {toBengaliDigits(shippingCost.toLocaleString('en-IN'))}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -480,10 +577,10 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
               <span className="font-mono text-base">৳ {toBengaliDigits(totalReturnedValue.toLocaleString('en-IN'))}</span>
             </div>
 
-            {totalNewTakenValue > 0 && (
-              <div className="flex justify-between items-center text-emerald-700 font-bold">
-                <span>নতুন নেওয়া পণ্যের মূল্য (Exchange)</span>
-                <span className="font-mono">- ৳ {toBengaliDigits(totalNewTakenValue.toLocaleString('en-IN'))}</span>
+            {customerPayableCharges > 0 && (
+              <div className="flex justify-between items-center text-slate-700 font-bold">
+                <span>লেবার ও পরিবহন খরচ (কাস্টমার প্রদেয়)</span>
+                <span className="font-mono text-rose-700">- ৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
               </div>
             )}
 
@@ -503,6 +600,13 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
               <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-rose-700 font-bold">
                 <span>নগদ ক্যাশ রিফান্ড প্রদান (Cash Refund Paid)</span>
                 <span className="font-mono font-bold">৳ {toBengaliDigits(cashRefundPaid.toLocaleString('en-IN'))}</span>
+              </div>
+            )}
+
+            {shopPaidCharges > 0 && (
+              <div className="flex justify-between items-center pt-1.5 border-t border-dashed border-slate-200 text-amber-800 text-[11px] font-bold">
+                <span>দোকান প্রদেয় লেবার/গাড়ি ভাড়া</span>
+                <span className="font-mono">৳ {toBengaliDigits(shopPaidCharges.toLocaleString('en-IN'))} (দোকান বহন করেছে)</span>
               </div>
             )}
           </div>

@@ -89,7 +89,7 @@ export interface ShippingChargeItem {
   id: string;
   invoiceId: string;
   date: string;
-  type?: 'sale' | 'purchase';
+  type?: 'sale' | 'purchase' | 'sale_return';
   partyName?: string;
   vehicleNo?: string;
   driverName?: string;
@@ -108,6 +108,7 @@ export interface LaborChargeItem {
   invoiceId: string;
   date: string;
   type?: 'loading' | 'unloading' | 'rod_loading' | 'cement_unloading' | 'rod_unloading';
+  isReturn?: boolean;
   partyName?: string;
   cementBags?: number;
   loadingRate?: number;
@@ -731,17 +732,18 @@ export function Shell({ children }: { children: ReactNode }) {
           }
         }
 
-        // 2. SALES TRANSACTIONS (Shipping, Cement Loading, and Rod Labor)
+        // 2. SALES & SALE RETURN TRANSACTIONS (Shipping, Cement Loading, and Rod Labor)
         // Strictly exclude pending/draft/unapproved invoices
-        if (t.transaction_type === 'sale') {
+        if (t.transaction_type === 'sale' || t.transaction_type === 'sale_return') {
           const rawStatus = String(t.status || meta.status || '').toLowerCase().trim();
           const isPending = rawStatus === 'pending' || rawStatus === 'draft' || rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'অপেক্ষমান' || rawStatus === 'বাতিল';
           if (isPending) return;
 
-          const invNo = t.invoice_no || (t.id ? `INV-${t.id}` : 'INV-0001');
+          const isReturn = t.transaction_type === 'sale_return';
+          const invNo = t.invoice_no || (t.id ? (isReturn ? `RET-${t.id}` : `INV-${t.id}`) : (isReturn ? 'RET-0001' : 'INV-0001'));
 
-          // 2A. Sales Shipping Charges (গাড়ি ভাড়া - ড্রয়ারে যুক্ত হবে)
-          const salesShipCost = Number(tAny.shipping_cost !== undefined ? tAny.shipping_cost : (meta.shippingCost || meta.transportCost || 0));
+          // 2A. Sales / Return Shipping Charges (গাড়ি ভাড়া - ড্রয়ারে যুক্ত হবে)
+          const salesShipCost = Number(meta.shippingCost !== undefined ? meta.shippingCost : (meta.transportCost !== undefined ? meta.transportCost : (tAny.shipping_cost || 0)));
           if (salesShipCost > 0) {
             const isShipPaid = Boolean(meta.salesShippingPaid || meta.shippingPaid || tAny.salesShippingPaid);
             const shipPaidAmt = Number(meta.salesShippingPaidAmount !== undefined ? meta.salesShippingPaidAmount : (isShipPaid ? salesShipCost : 0));
@@ -758,15 +760,15 @@ export function Shell({ children }: { children: ReactNode }) {
             }
 
             sItems.push({
-              id: `sale-ship-${t.id}`,
+              id: isReturn ? `return-ship-${t.id}` : `sale-ship-${t.id}`,
               invoiceId: invNo,
               date: txDate,
-              type: 'sale',
-              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              type: isReturn ? 'sale_return' : 'sale',
+              partyName: t.party_name || meta.customerName || (isReturn ? 'ফেরত গ্রাহক' : 'খুচরা গ্রাহক'),
               vehicleNo: tAny.vehicle_no || meta.vehicleNo || '',
               driverName: tAny.driver_name || meta.driverName || '',
               driverPhone: tAny.driver_phone || meta.driverPhone || '',
-              deliveryAddress: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || '',
+              deliveryAddress: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || (isReturn ? 'ফেরত গ্রহণ' : ''),
               amount: salesShipCost,
               status: shipStatus,
               paidAmount: shipPaidAmt,
@@ -776,7 +778,7 @@ export function Shell({ children }: { children: ReactNode }) {
             });
           }
 
-          // 2B. Sales Cement Loading Charges (সিমেন্ট লোডিং খরচ - দোকান প্রদেয়)
+          // 2B. Sales / Return Cement Loading Charges (সিমেন্ট লোডিং খরচ - ড্রয়ারে যুক্ত হবে)
           const cementRate = Number(meta.cementLaborRate || tAny.cementLaborRate || 0);
           const cementCost = Number(meta.cementLaborCost || meta.cementLoadingCharge || tAny.cementLaborCost || 0);
           const cementBags = Number(meta.cementTotalBags || tAny.cementTotalBags || 0);
@@ -798,14 +800,15 @@ export function Shell({ children }: { children: ReactNode }) {
             }
 
             lItems.push({
-              id: `sale-cement-${t.id}`,
+              id: isReturn ? `return-cement-${t.id}` : `sale-cement-${t.id}`,
               invoiceId: invNo,
               date: txDate,
               type: 'loading',
-              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              isReturn: isReturn,
+              partyName: t.party_name || meta.customerName || (isReturn ? 'ফেরত গ্রাহক' : 'খুচরা গ্রাহক'),
               cementBags: cementBags > 0 ? cementBags : (cementRate > 0 ? Math.round(totalLoadingCost / cementRate) : undefined),
               loadingRate: cementRate > 0 ? cementRate : undefined,
-              unloadingSite: tAny.delivery_address || meta.deliveryAddress || 'গ্রাহকের সাইট / ডেলিভারি',
+              unloadingSite: tAny.delivery_address || meta.deliveryAddress || (isReturn ? 'ফেরত গ্রহণ' : 'গ্রাহকের সাইট / ডেলিভারি'),
               operatorName: meta.cementLoadingSardar || meta.preparedBy || meta.operatorName || '',
               amount: totalLoadingCost,
               status: labStatus,
@@ -816,7 +819,7 @@ export function Shell({ children }: { children: ReactNode }) {
             });
           }
 
-          // 2C. Sales Rod & Ring Labor Charges (রড ও রিং লোডিং খরচ - ড্রয়ারে যুক্ত হবে)
+          // 2C. Sales / Return Rod & Ring Labor Charges (রড ও রিং লোডিং খরচ - ড্রয়ারে যুক্ত হবে)
           const rodRate = Number(meta.rodLaborRate || tAny.rodLaborRate || 0);
           const rodKg = Number(meta.rodRingTotalKg || tAny.rodRingTotalKg || 0);
           const rodLaborCost = Number(meta.rodLaborCost !== undefined ? meta.rodLaborCost : (meta.chargeCalcMode === 'rate' ? rodRate * rodKg : (meta.laborCost || 0)));
@@ -838,14 +841,15 @@ export function Shell({ children }: { children: ReactNode }) {
             }
 
             lItems.push({
-              id: `sale-rod-${t.id}`,
+              id: isReturn ? `return-rod-${t.id}` : `sale-rod-${t.id}`,
               invoiceId: invNo,
               date: txDate,
               type: 'rod_loading',
-              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              isReturn: isReturn,
+              partyName: t.party_name || meta.customerName || (isReturn ? 'ফেরত গ্রাহক' : 'খুচরা গ্রাহক'),
               rodKg: rodKg > 0 ? rodKg : undefined,
               rodRate: rodRate > 0 ? rodRate : undefined,
-              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || 'গ্রাহকের সাইট / ডেলিভারি',
+              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || (isReturn ? 'ফেরত গ্রহণ' : 'গ্রাহকের সাইট / ডেলিভারি'),
               operatorName: meta.rodLaborSardar || meta.preparedBy || meta.operatorName || '',
               amount: totalRodCost,
               status: labStatus,
@@ -856,7 +860,7 @@ export function Shell({ children }: { children: ReactNode }) {
             });
           }
 
-          // 2D. Sales Cement Unloading Charges (সিমেন্ট আনলোডিং খরচ - কাস্টমার প্রদেয়, ড্রয়ারে যুক্ত হবে)
+          // 2D. Sales / Return Cement Unloading Charges (সিমেন্ট আনলোডিং খরচ - ড্রয়ারে যুক্ত হবে)
           const cementUnloadRate = Number(meta.cementUnloadingRate || tAny.cementUnloadingRate || 0);
           const cementUnloadCost = Number(meta.cementUnloadingCost !== undefined ? meta.cementUnloadingCost : (cementUnloadRate > 0 && cementBags > 0 ? cementUnloadRate * cementBags : 0));
           const totalCementUnloadCost = cementUnloadCost > 0 ? cementUnloadCost : (cementUnloadRate * cementBags);
@@ -877,14 +881,15 @@ export function Shell({ children }: { children: ReactNode }) {
             }
 
             lItems.push({
-              id: `sale-cement-unload-${t.id}`,
+              id: isReturn ? `return-cement-unload-${t.id}` : `sale-cement-unload-${t.id}`,
               invoiceId: invNo,
               date: txDate,
               type: 'cement_unloading',
-              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              isReturn: isReturn,
+              partyName: t.party_name || meta.customerName || (isReturn ? 'ফেরত গ্রাহক' : 'খুচরা গ্রাহক'),
               cementBags: cementBags > 0 ? cementBags : undefined,
               loadingRate: cementUnloadRate > 0 ? cementUnloadRate : undefined,
-              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || 'গ্রাহকের সাইট / ডেলিভারি',
+              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || (isReturn ? 'ফেরত গ্রহণ' : 'গ্রাহকের সাইট / ডেলিভারি'),
               operatorName: meta.cementUnloadingSardar || meta.preparedBy || meta.operatorName || '',
               amount: totalCementUnloadCost,
               status: labStatus,
@@ -895,7 +900,7 @@ export function Shell({ children }: { children: ReactNode }) {
             });
           }
 
-          // 2E. Sales Rod Unloading Charges (রড আনলোডিং খরচ - ড্রয়ারে যুক্ত হবে)
+          // 2E. Sales / Return Rod Unloading Charges (রড আনলোডিং খরচ - ড্রয়ারে যুক্ত হবে)
           const rodUnloadRate = Number(meta.rodUnloadingRate || tAny.rodUnloadingRate || 0);
           const rodUnloadCost = Number(meta.rodUnloadingCost !== undefined ? meta.rodUnloadingCost : (rodUnloadRate > 0 && rodKg > 0 ? rodUnloadRate * rodKg : 0));
           const totalRodUnloadCost = rodUnloadCost > 0 ? rodUnloadCost : (rodUnloadRate * rodKg);
@@ -916,14 +921,15 @@ export function Shell({ children }: { children: ReactNode }) {
             }
 
             lItems.push({
-              id: `sale-rod-unload-${t.id}`,
+              id: isReturn ? `return-rod-unload-${t.id}` : `sale-rod-unload-${t.id}`,
               invoiceId: invNo,
               date: txDate,
               type: 'rod_unloading',
-              partyName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+              isReturn: isReturn,
+              partyName: t.party_name || meta.customerName || (isReturn ? 'ফেরত গ্রাহক' : 'খুচরা গ্রাহক'),
               rodKg: rodKg > 0 ? rodKg : undefined,
               rodRate: rodUnloadRate > 0 ? rodUnloadRate : undefined,
-              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || 'গ্রাহকের সাইট / ডেলিভারি',
+              unloadingSite: tAny.delivery_address || meta.deliveryAddress || meta.siteAddress || (isReturn ? 'ফেরত গ্রহণ' : 'গ্রাহকের সাইট / ডেলিভারি'),
               operatorName: meta.rodUnloadingSardar || meta.preparedBy || meta.operatorName || '',
               amount: totalRodUnloadCost,
               status: labStatus,
@@ -1020,9 +1026,10 @@ export function Shell({ children }: { children: ReactNode }) {
         } catch {}
       }
 
+      const isReturn = item.type === 'sale_return' || t?.transaction_type === 'sale_return';
       const isSale = item.type === 'sale' || t?.transaction_type === 'sale';
 
-      if (isSale) {
+      if (isSale || isReturn) {
         meta.salesShippingPaid = true;
         meta.salesShippingPaidAmount = item.amount;
         meta.salesShippingPaidAt = new Date().toISOString();
@@ -1037,7 +1044,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
       // 1. Record payment_out transaction so Cash balance and Transactions list are debited
       await api.transactions.create({
-        party_name: `গাড়ি ভাড়া (${item.driverName || item.vehicleNo || (isSale ? 'বিক্রয় পরিবহন' : 'ক্রয় পরিবহন')})`,
+        party_name: `গাড়ি ভাড়া (${item.driverName || item.vehicleNo || (isReturn ? 'বিক্রয় ফেরত পরিবহন' : isSale ? 'বিক্রয় পরিবহন' : 'ক্রয় পরিবহন')})`,
         transaction_type: 'payment_out',
         total_amount: Number(payAmount),
         paid_amount: Number(payAmount),
@@ -1049,12 +1056,14 @@ export function Shell({ children }: { children: ReactNode }) {
           invoiceId: item.invoiceId,
           invoiceNo: item.invoiceId,
           isShippingExpense: true,
-          isSalesShipping: isSale
-        }) + `\n[${isSale ? 'বিক্রয়' : 'ক্রয়'} গাড়ি ভাড়া পরিশোধ] চালান: #${item.invoiceId}`
+          isSalesShipping: isSale || isReturn
+        }) + `\n[${isReturn ? 'বিক্রয় ফেরত' : isSale ? 'বিক্রয়' : 'ক্রয়'} গাড়ি ভাড়া পরিশোধ] চালান: #${item.invoiceId}`
       }).catch(err => console.warn('Transaction record fallback:', err));
 
       // 2. Record in expenses table (with duplicate check specifically for transport/shipping)
-      const targetTitle = isSale
+      const targetTitle = isReturn
+        ? `বিক্রয় ফেরত চালান পরিবহন / গাড়ি ভাড়া (চালান #${item.invoiceId})`
+        : isSale
         ? `বিক্রয় চালান পরিবহন / গাড়ি ভাড়া (চালান #${item.invoiceId})`
         : `পরিবহন / গাড়ি ভাড়া (চালান #${item.invoiceId})`;
       const existingExpenses = await api.expenses.list({ search: item.invoiceId }).catch(() => []);
@@ -1109,8 +1118,9 @@ export function Shell({ children }: { children: ReactNode }) {
         } catch {}
       }
 
+      const isReturn = item.type === 'sale_return' || t?.transaction_type === 'sale_return';
       const isSale = item.type === 'sale' || t?.transaction_type === 'sale';
-      if (isSale) {
+      if (isSale || isReturn) {
         meta.salesShippingPaid = true;
         meta.salesShippingPaidAmount = item.amount;
         meta.shippingPaid = true;
@@ -1186,24 +1196,26 @@ export function Shell({ children }: { children: ReactNode }) {
         meta.laborPaidAmount = item.amount;
       }
 
+      const isReturn = Boolean(item.isReturn || t?.transaction_type === 'sale_return');
+
       const partyLabel = item.type === 'loading'
-        ? `লোডিং লেবার বিল (${item.partyName || 'বিক্রয় সিমেন্ট'})`
+        ? `${isReturn ? 'বিক্রয় ফেরত ' : ''}লোডিং লেবার বিল (${item.partyName || 'সিমেন্ট'})`
         : item.type === 'rod_loading'
-        ? `রড লোডিং লেবার বিল (${item.partyName || 'বিক্রয় রড'})`
+        ? `${isReturn ? 'বিক্রয় ফেরত ' : ''}রড লোডিং লেবার বিল (${item.partyName || 'রড'})`
         : item.type === 'rod_unloading'
-        ? `রড আনলোডিং লেবার বিল (${item.partyName || 'বিক্রয় রড'})`
+        ? `${isReturn ? 'বিক্রয় ফেরত ' : ''}রড আনলোডিং লেবার বিল (${item.partyName || 'রড'})`
         : item.type === 'cement_unloading'
-        ? `সিমেন্ট আনলোডিং লেবার বিল (${item.partyName || 'বিক্রয় সিমেন্ট'})`
+        ? `${isReturn ? 'বিক্রয় ফেরত ' : ''}সিমেন্ট আনলোডিং লেবার বিল (${item.partyName || 'সিমেন্ট'})`
         : `আনলোডিং লেবার বিল (${item.partyName || 'ক্রয়'})`;
 
       const typeLabel = item.type === 'loading'
-        ? 'বিক্রয় সিমেন্ট লোডিং'
+        ? (isReturn ? 'বিক্রয় ফেরত সিমেন্ট লোডিং' : 'বিক্রয় সিমেন্ট লোডিং')
         : item.type === 'rod_loading'
-        ? 'বিক্রয় রড লোডিং'
+        ? (isReturn ? 'বিক্রয় ফেরত রড লোডিং' : 'বিক্রয় রড লোডিং')
         : item.type === 'rod_unloading'
-        ? 'বিক্রয় রড আনলোডিং'
+        ? (isReturn ? 'বিক্রয় ফেরত রড আনলোডিং' : 'বিক্রয় রড আনলোডিং')
         : item.type === 'cement_unloading'
-        ? 'বিক্রয় সিমেন্ট আনলোডিং'
+        ? (isReturn ? 'বিক্রয় ফেরত সিমেন্ট আনলোডিং' : 'বিক্রয় সিমেন্ট আনলোডিং')
         : 'ক্রয় আনলোডিং';
 
       // 1. Record payment_out transaction so Cash balance and Transactions list immediately deduct cash (ক্যাশ থেকে আউট)
@@ -1230,13 +1242,13 @@ export function Shell({ children }: { children: ReactNode }) {
 
       // 2. Also record in expenses table (with duplicate check specifically for labor/loading/unloading)
       const targetTitle = item.type === 'loading' 
-        ? `বিক্রয় চালান লোডিং চার্জ (চালান #${item.invoiceId})`
+        ? (isReturn ? `বিক্রয় ফেরত লোডিং চার্জ (চালান #${item.invoiceId})` : `বিক্রয় চালান লোডিং চার্জ (চালান #${item.invoiceId})`)
         : item.type === 'rod_loading'
-        ? `বিক্রয় চালান রড লোডিং চার্জ (চালান #${item.invoiceId})`
+        ? (isReturn ? `বিক্রয় ফেরত রড লোডিং চার্জ (চালান #${item.invoiceId})` : `বিক্রয় চালান রড লোডিং চার্জ (চালান #${item.invoiceId})`)
         : item.type === 'rod_unloading'
-        ? `বিক্রয় চালান রড আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})`
+        ? (isReturn ? `বিক্রয় ফেরত রড আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})` : `বিক্রয় চালান রড আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})`)
         : item.type === 'cement_unloading'
-        ? `বিক্রয় চালান সিমেন্ট আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})`
+        ? (isReturn ? `বিক্রয় ফেরত সিমেন্ট আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})` : `বিক্রয় চালান সিমেন্ট আনলোডিং লেবার চার্জ (চালান #${item.invoiceId})`)
         : `ক্রয় চালান আনলোডিং চার্জ (চালান #${item.invoiceId})`;
 
       const existingExpenses = await api.expenses.list({ search: item.invoiceId }).catch(() => []);
@@ -2261,7 +2273,11 @@ export function Shell({ children }: { children: ReactNode }) {
                             <span className="font-mono text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">
                               #{item.invoiceId}
                             </span>
-                            {item.type === 'sale' ? (
+                            {item.type === 'sale_return' ? (
+                              <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                🔄 বিক্রয় ফেরত
+                              </span>
+                            ) : item.type === 'sale' ? (
                               <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-500/30">
                                 🚚 বিক্রয় চালান
                               </span>
@@ -2274,7 +2290,7 @@ export function Shell({ children }: { children: ReactNode }) {
                               {formatBnDate(item.date, 'dd/MM/yyyy')}
                             </span>
                           </div>
-                          {item.type === 'sale' && item.partyName && (
+                          {(item.type === 'sale' || item.type === 'sale_return') && item.partyName && (
                             <p className="text-xs text-slate-300 mt-1">
                               গ্রাহক: <strong className="text-white">{item.partyName}</strong>
                             </p>
@@ -2448,7 +2464,29 @@ export function Shell({ children }: { children: ReactNode }) {
                             <span className="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                               #{item.invoiceId}
                             </span>
-                            {item.type === 'loading' ? (
+                            {item.isReturn ? (
+                              item.type === 'loading' ? (
+                                <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                  🔄 ফেরত লোডিং (সিমেন্ট)
+                                </span>
+                              ) : item.type === 'rod_loading' ? (
+                                <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                  🔄 ফেরত লোডিং (রড)
+                                </span>
+                              ) : item.type === 'rod_unloading' ? (
+                                <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                  🔄 ফেরত আনলোডিং (রড)
+                                </span>
+                              ) : item.type === 'cement_unloading' ? (
+                                <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                  🔄 ফেরত আনলোডিং (সিমেন্ট)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                  🔄 ফেরত লেবার
+                                </span>
+                              )
+                            ) : item.type === 'loading' ? (
                               <span className="text-[10px] font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md border border-amber-500/30">
                                 🚚 বিক্রয় লোডিং (সিমেন্ট)
                               </span>

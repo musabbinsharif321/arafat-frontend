@@ -80,10 +80,12 @@ export default function LoadingChargesPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [txList, bankList] = await Promise.all([
+      const [salesList, returnsList, bankList] = await Promise.all([
         api.transactions.list({ transaction_type: 'sale' }),
+        api.transactions.list({ transaction_type: 'sale_return' }).catch(() => []),
         api.banks.list().catch(() => [])
       ]);
+      const txList = [...(salesList || []), ...(returnsList || [])];
 
       setBanks(bankList.map((b: any) => ({
         id: b.id,
@@ -116,14 +118,15 @@ export default function LoadingChargesPage() {
         const totalLoading = cementCost > 0 ? cementCost : (cementRate > 0 && cementBags > 0 ? cementRate * cementBags : 0);
 
         if (totalLoading > 0 || (cementBags > 0 && cementRate > 0)) {
-          const invNo = t.invoice_no || `INV-${String(t.id).padStart(6, '0')}`;
+          const isReturn = t.transaction_type === 'sale_return';
+          const invNo = t.invoice_no || (isReturn ? `RET-${String(t.id).padStart(6, '0')}` : `INV-${String(t.id).padStart(6, '0')}`);
           const isPaid = Boolean(meta.cementLoadingPaid || (t as any).cementLoadingPaid);
 
           extracted.push({
             id: String(t.id),
             invoiceNo: invNo,
             date: t.created_at || new Date().toISOString(),
-            customerName: t.party_name || meta.customerName || 'খুচরা গ্রাহক',
+            customerName: (isReturn ? '[ফেরত] ' : '') + (t.party_name || meta.customerName || 'খুচরা গ্রাহক'),
             customerPhone: meta.customerPhone || '',
             deliveryAddress: meta.deliveryAddress || '',
             cementBags: cementBags > 0 ? cementBags : (totalLoading / (cementRate || 1)),
