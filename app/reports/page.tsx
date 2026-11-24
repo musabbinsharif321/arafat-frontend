@@ -3313,12 +3313,12 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 rodReturnAmount += rSum;
               });
 
-              // Net Quantities and Amounts (সমন্বিত নিট বিক্রয়)
-              const cementSalesQty = Math.max(0, grossCementSalesQty - cementReturnQty);
-              const rodSalesQty = Math.max(0, grossRodSalesQty - rodReturnQty);
+              // Gross Sales Quantities and Amounts (মোট বিক্রয় - ফেরত এখান থেকে বাদ দেওয়া হবে না)
+              const cementSalesQty = grossCementSalesQty;
+              const rodSalesQty = grossRodSalesQty;
 
-              const cementSalesAmount = Math.max(0, grossCementSalesAmount - cementReturnAmount);
-              const rodSalesAmount = Math.max(0, grossRodSalesAmount - rodReturnAmount);
+              const cementSalesAmount = grossCementSalesAmount;
+              const rodSalesAmount = grossRodSalesAmount;
 
               const grossProductSalesAmount = grossCementSalesAmount + grossRodSalesAmount;
               const totalSaleReturnAmount = cementReturnAmount + rodReturnAmount;
@@ -3431,8 +3431,13 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 }
               });
 
-              const cementTotalDirectCost = cementPurchaseAmount + cementTruckFare + cementUnloadLabor;
-              const rodTotalDirectCost = rodPurchaseAmount + rodTruckFare + rodUnloadLabor;
+              const totalCementPurchaseQty = cementPurchaseQty + cementReturnQty;
+              const totalCementPurchaseAmount = cementPurchaseAmount + cementReturnAmount;
+              const totalRodPurchaseQty = rodPurchaseQty + rodReturnQty;
+              const totalRodPurchaseAmount = rodPurchaseAmount + rodReturnAmount;
+
+              const cementTotalDirectCost = totalCementPurchaseAmount + cementTruckFare + cementUnloadLabor;
+              const rodTotalDirectCost = totalRodPurchaseAmount + rodTruckFare + rodUnloadLabor;
               const totalDirectCost = cementTotalDirectCost + rodTotalDirectCost;
 
               // 5. Operating Expenses (ব্যাবসা পরিচালন ব্যয়)
@@ -3669,19 +3674,21 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                   {/* Top KPI Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
                     <Card className="p-4 border-emerald-200 bg-gradient-to-br from-emerald-50/90 to-teal-50/40 rounded-2xl shadow-xs">
-                      <p className="text-xs font-bold text-emerald-800">মোট বিক্রয় আয় (Net Revenue)</p>
+                      <p className="text-xs font-bold text-emerald-800">মোট বিক্রয় আয় (Gross Revenue)</p>
                       <p className="text-2xl font-black text-emerald-700 mt-1">{formatBnCurrency(totalSalesIncome)}</p>
                       <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
-                        {totalSaleReturnAmount > 0 
-                          ? `বিক্রি: ${formatBnCurrency(grossProductSalesAmount)} | ফেরত: -${formatBnCurrency(totalSaleReturnAmount)}`
-                          : 'সিমেন্ট ও রড নিট বিক্রয়'}
+                        সিমেন্ট ও রড মোট বিক্রয়
                       </p>
                     </Card>
 
                     <Card className="p-4 border-rose-200 bg-gradient-to-br from-rose-50/90 to-red-50/40 rounded-2xl shadow-xs">
                       <p className="text-xs font-bold text-rose-800">মোট ক্রয় ও প্রত্যক্ষ ব্যয় (COGS)</p>
                       <p className="text-2xl font-black text-rose-600 mt-1">{formatBnCurrency(totalDirectCost)}</p>
-                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5">ক্রয় + গাড়িভাড়া + আনলোড লেবার</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                        {totalSaleReturnAmount > 0
+                          ? `ক্রয় + ফেরত (${formatBnCurrency(totalSaleReturnAmount)}) + গাড়িভাড়া + আনলোড`
+                          : 'ক্রয় + গাড়িভাড়া + আনলোড লেবার'}
+                      </p>
                     </Card>
 
                     <Card className="p-4 border-amber-200 bg-gradient-to-br from-amber-50/90 to-yellow-50/40 rounded-2xl shadow-xs">
@@ -3807,11 +3814,6 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                               সিমেন্ট বিক্রয় বাবদ আয়
-                              {cementReturnQty > 0 && (
-                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
-                                  (বিক্রি: {formatBnQty(grossCementSalesQty)} [{formatBnNumber(grossCementSalesAmount)} ৳] - ফেরত: {formatBnQty(cementReturnQty)} [{formatBnNumber(cementReturnAmount)} ৳])
-                                </span>
-                              )}
                             </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(cementSalesQty)}</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(cementSalesAmount)}</td>
@@ -3822,11 +3824,6 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>২</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
                               রড বিক্রয় বাবদ আয়
-                              {rodReturnQty > 0 && (
-                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
-                                  (বিক্রি: {formatBnQty(grossRodSalesQty)} [{formatBnNumber(grossRodSalesAmount)} ৳] - ফেরত: {formatBnQty(rodReturnQty)} [{formatBnNumber(rodReturnAmount)} ৳])
-                                </span>
-                              )}
                             </td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(rodSalesQty)}</td>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(rodSalesAmount)}</td>
@@ -3866,9 +3863,16 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                           {/* ১. সিমেন্ট ক্রয় বাবদ ব্যয় */}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>সিমেন্ট ক্রয় বাবদ ব্যয়</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(cementPurchaseQty)}</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(cementPurchaseAmount)}</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
+                              সিমেন্ট ক্রয় বাবদ ব্যয়
+                              {cementReturnQty > 0 && (
+                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
+                                  (ক্রয়: {formatBnQty(cementPurchaseQty)} [{formatBnNumber(cementPurchaseAmount)} ৳] + ফেরত: {formatBnQty(cementReturnQty)} [{formatBnNumber(cementReturnAmount)} ৳])
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(totalCementPurchaseQty)}</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(totalCementPurchaseAmount)}</td>
                           </tr>
 
                           {/* ২. সিমেন্ট গাড়ী ভাড়া বাবদ ব্যয় */}
@@ -3912,9 +3916,16 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                           {/* ১. রড ক্রয় বাবদ ব্যয় */}
                           <tr style={{ pageBreakInside: 'avoid' }}>
                             <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>রড ক্রয় বাবদ ব্যয়</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(rodPurchaseQty)}</td>
-                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(rodPurchaseAmount)}</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>
+                              রড ক্রয় বাবদ ব্যয়
+                              {rodReturnQty > 0 && (
+                                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>
+                                  (ক্রয়: {formatBnQty(rodPurchaseQty)} [{formatBnNumber(rodPurchaseAmount)} ৳] + ফেরত: {formatBnQty(rodReturnQty)} [{formatBnNumber(rodReturnAmount)} ৳])
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(totalRodPurchaseQty)}</td>
+                            <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(totalRodPurchaseAmount)}</td>
                           </tr>
 
                           {/* ২. রডের গাড়ী ভাড়া বাবদ ব্যয় */}
@@ -4201,8 +4212,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                         <tr style={{ pageBreakInside: 'avoid' }}>
                           <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
                           <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>সিমেন্ট ক্রয় বাবদ ব্যয়</td>
-                          <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(cementPurchaseQty)}</td>
-                          <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(cementPurchaseAmount)}</td>
+                          <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(totalCementPurchaseQty)}</td>
+                          <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(totalCementPurchaseAmount)}</td>
                         </tr>
 
                         {/* ২. সিমেন্ট গাড়ী ভাড়া বাবদ ব্যয় */}
@@ -4247,8 +4258,8 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                         <tr style={{ pageBreakInside: 'avoid' }}>
                           <td style={{ border: '1.5px solid #000000', padding: '5px 4px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>১</td>
                           <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: '14px' }}>রড ক্রয় বাবদ ব্যয়</td>
-                          <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(rodPurchaseQty)}</td>
-                          <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(rodPurchaseAmount)}</td>
+                          <td style={{ border: '1.5px solid #000000', padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnQty(totalRodPurchaseQty)}</td>
+                          <td style={{ border: '1.5px solid #000000', padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>{formatBnNumber(totalRodPurchaseAmount)}</td>
                         </tr>
 
                         {/* ২. রডের গাড়ী ভাড়া বাবদ ব্যয় */}
@@ -4450,7 +4461,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                               if (items.length === 0) return sum + (Number(r.totalAmount) || 0);
                               return sum + items.reduce((iSum, i) => iSum + (Number((i as any).total) || ((Number(i.price) || 0) * (Number(i.quantity) || 0))), 0);
                             }, 0);
-                            const mSales = Math.max(0, mGrossSales - mRetAmount);
+                            const mSales = mGrossSales;
 
                             const mPurchTotal = mPurchases.reduce((sum, p) => {
                               const items = p.items || [];
@@ -4461,7 +4472,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                               ((e.title?.includes('সিমেন্ট') || e.title?.includes('রড')) && 
                                (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('লেবার') || e.title?.includes('আনলোড')))
                             ).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-                            const mCogs = mPurchTotal + mDirectExp;
+                            const mCogs = mPurchTotal + mRetAmount + mDirectExp;
                             const mOpex = mExpenses.filter(e => 
                               !((e.title?.includes('সিমেন্ট') || e.title?.includes('রড')) && 
                                 (e.title?.includes('গাড়ি') || e.title?.includes('ভাড়া') || e.title?.includes('লেবার') || e.title?.includes('আনলোড')))

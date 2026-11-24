@@ -204,7 +204,7 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
   }
   const netRefundValue = returnEntry.netRefundValue !== undefined 
     ? returnEntry.netRefundValue 
-    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : Math.max(0, totalReturnedValue - customerPayableCharges));
+    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : totalReturnedValue);
 
   const dueAdjusted = returnEntry.dueAdjusted || 0;
   const cashRefundPaid = returnEntry.cashRefundPaid || 0;
@@ -454,8 +454,8 @@ export const ReturnInvoiceMemo: React.FC<ReturnInvoiceMemoProps> = ({
 
             {customerPayableCharges > 0 && (
               <div className="flex justify-between items-center text-slate-700">
-                <span>লেবার ও পরিবহন (কাস্টমার প্রদেয়):</span>
-                <span className="font-black text-rose-700">- ৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
+                <span>লেবার ও পরিবহন (কাস্টমার প্রদেয় — লেজারে আলাদা চার্জ):</span>
+                <span className="font-black text-amber-700">৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
               </div>
             )}
 

@@ -1462,9 +1462,9 @@ export function Shell({ children }: { children: ReactNode }) {
             >
               <NotebookPen className="h-4.5 w-4.5 text-emerald-600" />
               <span className="hidden lg:inline text-slate-800 font-bold">হাওলাত</span>
-              {hawlatItems.length > 0 && (
+              {pendingHawlatItems.length > 0 && (
                 <span className="flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-600 text-white rounded-full min-w-[18px]">
-                  {toBnDigits(hawlatItems.length)}
+                  {toBnDigits(pendingHawlatItems.length)}
                 </span>
               )}
             </button>

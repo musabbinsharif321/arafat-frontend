@@ -124,7 +124,7 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
   }
   const netRefundValue = returnEntry.netRefundValue !== undefined 
     ? Number(returnEntry.netRefundValue) 
-    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : Math.max(0, totalReturnedValue - customerPayableCharges));
+    : (totalNewTakenValue > 0 ? (totalReturnedValue - totalNewTakenValue) : totalReturnedValue);
 
   const dueAdjusted = Number(returnEntry.dueAdjusted || 0);
   const cashRefundPaid = Number(returnEntry.cashRefundPaid || 0);
@@ -578,9 +578,9 @@ export const SalesReturnDetailsView: React.FC<SalesReturnDetailsViewProps> = ({
             </div>
 
             {customerPayableCharges > 0 && (
-              <div className="flex justify-between items-center text-slate-700 font-bold">
-                <span>লেবার ও পরিবহন খরচ (কাস্টমার প্রদেয়)</span>
-                <span className="font-mono text-rose-700">- ৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
+              <div className="flex justify-between items-center text-amber-800 font-bold">
+                <span>লেবার ও পরিবহন খরচ (কাস্টমার প্রদেয় — লেজারে আলাদা চার্জ)</span>
+                <span className="font-mono text-amber-700">৳ {toBengaliDigits(customerPayableCharges.toLocaleString('en-IN'))}</span>
               </div>
             )}
 

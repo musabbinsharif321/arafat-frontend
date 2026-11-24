@@ -131,7 +131,7 @@ export interface LedgerEntry {
   id: string;
   date: Date;
   refNo: string;
-  type: 'SALE' | 'PURCHASE' | 'PAYMENT' | 'CHEQUE_PENDING' | 'CHEQUE_CLEARED' | 'ADJUSTMENT' | 'RETURN';
+  type: 'SALE' | 'PURCHASE' | 'PAYMENT' | 'CHEQUE_PENDING' | 'CHEQUE_CLEARED' | 'ADJUSTMENT' | 'RETURN' | 'CHARGE';
   description: string;
   invoiceNo?: string;
   debit: number;
@@ -366,6 +366,13 @@ export function generateLedgerEntries(
           dueAmount: 0
         });
       } else if (txType === 'sale_return' || txType === 'purchase_return') {
+        let meta: any = {};
+        if (tx.notes && typeof tx.notes === 'string' && tx.notes.trim().startsWith('{')) {
+          try {
+            meta = JSON.parse(tx.notes.split('\n')[0]);
+          } catch {}
+        }
+        const custCharges = Number(meta.customerPayableCharges || (meta.shippingCostToCustomerLedger ? meta.shippingCost : 0) || 0);
         const returnAmount = Number(tx.totalAmount || 0);
         const refundPaid = Number(tx.paidAmount || 0);
         cumulativeBalance -= returnAmount;
@@ -415,6 +422,24 @@ export function generateLedgerEntries(
           orderId: tx.id,
           dueAmount: 0
         });
+
+        if (custCharges > 0) {
+          cumulativeBalance += custCharges;
+          entries.push({
+            id: `${tx.id}-ret-charge`,
+            date: txDate,
+            refNo: `${retNo}-TR`,
+            type: 'CHARGE',
+            description: `ফেরত পরিবহন খরচ (কাস্টমার প্রদেয়) [চালান #${retNo}]`,
+            invoiceNo: retNo,
+            debit: custCharges,
+            credit: 0,
+            runningBalance: cumulativeBalance,
+            paymentMethod: '—',
+            orderId: tx.id,
+            dueAmount: 0
+          });
+        }
 
         if (refundPaid > 0) {
           cumulativeBalance += refundPaid;
@@ -2146,7 +2171,15 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
 
                             <TableCell className="py-3.5 px-4 text-left font-mono font-bold text-blue-600 hover:underline">
                               <span className="inline-flex items-center gap-1">
-                                {isSale ? <FileText className="w-3.5 h-3.5 text-emerald-600" /> : <CreditCard className="w-3.5 h-3.5 text-blue-600" />}
+                                {entry.type === 'CHARGE' || entry.description.includes('ফেরত পরিবহন খরচ') ? (
+                                  <Truck className="w-3.5 h-3.5 text-amber-600" />
+                                ) : entry.type === 'RETURN' ? (
+                                  <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                                ) : isSale ? (
+                                  <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <CreditCard className="w-3.5 h-3.5 text-blue-600" />
+                                )}
                                 <span>{entry.refNo}</span>
                               </span>
                             </TableCell>
@@ -2183,6 +2216,16 @@ export default function PartyProfilePage({ id, type }: { id: string; type: 'cust
                                 <span className="inline-flex items-center gap-1 bg-purple-100/90 text-purple-800 font-bold text-[11px] px-2.5 py-0.5 rounded-full shadow-2xs">
                                   <HandCoins className="w-3 h-3 text-purple-600" />
                                   <span>লোন গ্রহণ</span>
+                                </span>
+                              ) : entry.type === 'CHARGE' || entry.description.includes('ফেরত পরিবহন খরচ') ? (
+                                <span className="inline-flex items-center gap-1 bg-amber-100/90 text-amber-800 font-bold text-[11px] px-2.5 py-0.5 rounded-full shadow-2xs">
+                                  <Truck className="w-3 h-3 text-amber-600" />
+                                  <span>পরিবহন খরচ</span>
+                                </span>
+                              ) : entry.type === 'RETURN' ? (
+                                <span className="inline-flex items-center gap-1 bg-rose-100/90 text-rose-800 font-bold text-[11px] px-2.5 py-0.5 rounded-full shadow-2xs">
+                                  <RotateCcw className="w-3 h-3 text-rose-600" />
+                                  <span>পণ্য ফেরত</span>
                                 </span>
                               ) : isSale ? (
                                 <span className="inline-flex items-center gap-1 bg-emerald-100/90 text-emerald-800 font-bold text-[11px] px-2.5 py-0.5 rounded-full shadow-2xs">

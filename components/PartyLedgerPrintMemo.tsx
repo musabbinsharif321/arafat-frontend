@@ -161,7 +161,8 @@ export function buildLedgerPrintRows(
       } else if (txType === 'payment_in' || txType === 'payment_out' || (isEngineer && txType === 'payment')) {
         priorBalance -= (paid || bill);
       } else if (txType === 'sale_return' || txType === 'purchase_return') {
-        priorBalance -= (bill - paid);
+        const custCharges = Number(meta.customerPayableCharges || (meta.shippingCostToCustomerLedger ? meta.shippingCost : 0) || 0);
+        priorBalance -= ((bill - paid) - custCharges);
       } else if (isEngineer) {
         const comm = Number(meta.engineerTotalCommission || (tx as any).engineerTotalCommission || 0);
         const rodKg = Number(meta.engineerRodKg || (tx as any).engineerRodKg || 0);
@@ -336,6 +337,22 @@ export function buildLedgerPrintRows(
           rawAmount: 0,
         });
       }
+
+      const custCharges = Number(meta.customerPayableCharges || (meta.shippingCostToCustomerLedger ? meta.shippingCost : 0) || 0);
+      if (custCharges > 0) {
+        totalAmount += custCharges;
+        rows.push({
+          date: txDateStr,
+          description: `ফেরত পরিবহন খরচ (কাস্টমার প্রদেয়) [চালান #${tx.invoiceNo || ''}]`,
+          quantity: '-',
+          rate: '-',
+          deposit: '-',
+          amount: formatLedgerNum(custCharges),
+          rawDeposit: 0,
+          rawAmount: custCharges,
+        });
+      }
+
       if (refundPaid > 0) {
         totalAmount += refundPaid;
         rows.push({
