@@ -3243,7 +3243,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 }
 
                 const cItems = items.filter(i => isCementProduct(i));
-                const rItems = items.filter(i => !isCementProduct(i));
+                const rItems = items.filter(i => isRodProduct(i));
 
                 cItems.forEach(i => {
                   grossCementSalesQty += Number(i.quantity) || 0;
@@ -3292,7 +3292,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 }
 
                 const cItems = items.filter(i => isCementProduct(i));
-                const rItems = items.filter(i => !isCementProduct(i));
+                const rItems = items.filter(i => isRodProduct(i));
 
                 cItems.forEach(i => {
                   cementReturnQty += Number(i.quantity) || 0;
@@ -3366,7 +3366,7 @@ ${dayRodReturnKg > 0 ? `রড ফেরত = ${formatRodSold(dayRodReturnKg)}\n
                 }
 
                 const cItems = items.filter(i => isCementProduct(i));
-                const rItems = items.filter(i => !isCementProduct(i));
+                const rItems = items.filter(i => isRodProduct(i));
 
                 cItems.forEach(i => {
                   cementPurchaseQty += Number(i.quantity) || 0;
